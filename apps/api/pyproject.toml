@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deviceops-api"
+version = "0.1.0"
+description = "FastAPI MQTT ingestion service for DeviceOps"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic==1.20.0",
+    "fastapi==0.141.1",
+    "paho-mqtt==2.1.0",
+    "psycopg[binary]==3.3.5",
+    "pydantic==2.13.5",
+    "SQLAlchemy==2.0.52",
+    "uvicorn==0.53.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["deviceops_api*"]

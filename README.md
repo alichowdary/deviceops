@@ -1,9 +1,18 @@
 # DeviceOps
 
 DeviceOps will be an IoT fleet management and observability platform.
-Milestones 1A and 1B provide a local MQTT broker, a versioned device protocol,
-and the first Python device simulator. The backend, database, browser application,
-and firmware are not implemented yet.
+Milestones 1A through 2 provide a local MQTT broker, a versioned device protocol,
+a Python device simulator, and a FastAPI ingestion service backed by PostgreSQL.
+The browser application and firmware are not implemented yet.
+
+The implemented flow is:
+
+```text
+Python simulator -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
+```
+
+FastAPI owns the MQTT subscriber and exposes read-only verification endpoints.
+Setup and run instructions are in [`apps/api/README.md`](apps/api/README.md).
 
 ## Device protocol and simulator
 
@@ -24,8 +33,8 @@ python -m device_simulator --device-id sim-001 --interval 5
 ## Local broker
 
 Prerequisite: Docker Desktop must be running with Linux containers and the
-`docker compose` command available. No Python packages or global MQTT CLI tools
-are needed for this milestone. Run all commands from the repository root.
+`docker compose` command available. No global MQTT CLI tools are needed for the
+broker smoke test. Run all commands from the repository root.
 
 ```powershell
 docker compose config
@@ -93,14 +102,15 @@ publish/subscribe test above verifies actual MQTT message delivery.
 
 ## Stop and troubleshooting
 
-Stop and remove this milestone's container, default Compose network, and the
-unused anonymous volumes supplied by the image:
+Stop the local infrastructure while preserving PostgreSQL data:
 
 ```powershell
-docker compose down --volumes
+docker compose down
 ```
 
-Start again with `docker compose up -d`. No broker state is saved across restarts.
+Start again with `docker compose up -d`. Mosquitto state is not saved across restarts;
+PostgreSQL data persists in its named volume. `docker compose down --volumes`
+deliberately deletes the development database as well as container volumes.
 After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload it.
 
 - If Docker reports that it cannot connect to the daemon, start Docker Desktop,
@@ -122,6 +132,6 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Milestone 1B stops at the MQTT device protocol and Python simulator. FastAPI,
-PostgreSQL, WebSockets, Next.js, authentication, commands, alerts, firmware, and
-cloud infrastructure remain future work.
+Milestone 2 stops at MQTT ingestion, PostgreSQL persistence, and a read-only REST
+API. WebSockets, Next.js, authentication, commands, alerts, firmware, and cloud
+infrastructure remain future work.
