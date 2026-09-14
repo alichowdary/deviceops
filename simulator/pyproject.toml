@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deviceops-device-simulator"
+version = "0.1.0"
+description = "Small MQTT device simulator for DeviceOps"
+requires-python = ">=3.11"
+dependencies = [
+    "paho-mqtt==2.1.0",
+]
+
+[project.scripts]
+deviceops-simulator = "device_simulator.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["device_simulator*"]

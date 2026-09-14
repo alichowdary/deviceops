@@ -1,8 +1,25 @@
 # DeviceOps
 
 DeviceOps will be an IoT fleet management and observability platform.
-The current scope is **Milestone 1A: local MQTT broker + manual smoke test**.
-The application, backend, database, simulator, and firmware are not implemented yet.
+Milestones 1A and 1B provide a local MQTT broker, a versioned device protocol,
+and the first Python device simulator. The backend, database, browser application,
+and firmware are not implemented yet.
+
+## Device protocol and simulator
+
+The version 1 MQTT topic and payload contract is in
+[`contracts/mqtt.md`](contracts/mqtt.md). It defines telemetry and retained device
+presence behavior and reserves command topics without implementing commands.
+
+Installation, run, and observation instructions for the Python simulator are in
+[`simulator/README.md`](simulator/README.md). With the broker running and the
+simulator environment installed, start the default `sim-001` device with:
+
+```powershell
+cd simulator
+.\.venv\Scripts\Activate.ps1
+python -m device_simulator --device-id sim-001 --interval 5
+```
 
 ## Local broker
 
@@ -105,6 +122,6 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Only Milestone 1A is implemented. The existing `apps/api`, `contracts`, and
-`simulator` directories remain placeholders. This setup generates no project
-files requiring new `.gitignore` entries.
+Milestone 1B stops at the MQTT device protocol and Python simulator. FastAPI,
+PostgreSQL, WebSockets, Next.js, authentication, commands, alerts, firmware, and
+cloud infrastructure remain future work.
