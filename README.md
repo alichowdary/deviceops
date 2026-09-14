@@ -1,18 +1,36 @@
 # DeviceOps
 
 DeviceOps will be an IoT fleet management and observability platform.
-Milestones 1A through 2 provide a local MQTT broker, a versioned device protocol,
-a Python device simulator, and a FastAPI ingestion service backed by PostgreSQL.
-The browser application and firmware are not implemented yet.
+Milestones 1A through 3 provide a local MQTT broker, a versioned device protocol,
+a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, and
+a read-only Next.js fleet console. Firmware is not implemented yet.
 
 The implemented flow is:
 
 ```text
 Python simulator -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
+                                         |
+                                         +-> REST API -> Next.js
 ```
 
-FastAPI owns the MQTT subscriber and exposes read-only verification endpoints.
-Setup and run instructions are in [`apps/api/README.md`](apps/api/README.md).
+FastAPI owns the MQTT subscriber and exposes read-only endpoints. The browser
+uses those REST endpoints and never connects to MQTT. Backend setup is in
+[`apps/api/README.md`](apps/api/README.md); frontend setup is in
+[`apps/web/README.md`](apps/web/README.md).
+
+## Web console
+
+The frontend provides a compact fleet inventory at <http://localhost:3000> and
+device detail pages at `/devices/{deviceId}`. It shows real API state, latest
+telemetry, server-time history charts, and recent samples. Data refreshes on page
+load or when the operator selects Refresh; WebSocket updates are outside this
+milestone.
+
+```powershell
+cd apps\web
+npm install
+npm run dev
+```
 
 ## Device protocol and simulator
 
@@ -132,6 +150,6 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Milestone 2 stops at MQTT ingestion, PostgreSQL persistence, and a read-only REST
-API. WebSockets, Next.js, authentication, commands, alerts, firmware, and cloud
-infrastructure remain future work.
+Milestone 3 stops at the read-only REST-backed web console. WebSockets,
+authentication, commands, alerts, firmware, and cloud infrastructure remain
+future work.

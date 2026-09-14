@@ -22,6 +22,7 @@ class Settings:
     mqtt_host: str
     mqtt_port: int
     mqtt_client_id: str
+    cors_origins: tuple[str, ...]
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -33,6 +34,14 @@ class Settings:
             mqtt_host=os.getenv("DEVICEOPS_MQTT_HOST", "localhost"),
             mqtt_port=_integer_environment_value("DEVICEOPS_MQTT_PORT", 1883),
             mqtt_client_id=os.getenv("DEVICEOPS_MQTT_CLIENT_ID", "deviceops-api"),
+            cors_origins=tuple(
+                origin.strip()
+                for origin in os.getenv(
+                    "DEVICEOPS_CORS_ORIGINS",
+                    "http://localhost:3000,http://127.0.0.1:3000",
+                ).split(",")
+                if origin.strip()
+            ),
         )
 
 

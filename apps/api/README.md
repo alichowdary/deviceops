@@ -80,6 +80,11 @@ Interactive OpenAPI documentation is at <http://127.0.0.1:8000/docs>.
 | `DEVICEOPS_MQTT_HOST` | `localhost` |
 | `DEVICEOPS_MQTT_PORT` | `1883` |
 | `DEVICEOPS_MQTT_CLIENT_ID` | `deviceops-api` |
+| `DEVICEOPS_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` |
+
+The CORS allowlist is limited to the two expected local Next.js origins. Supply
+a comma-separated list through `DEVICEOPS_CORS_ORIGINS` if the local frontend
+uses a different origin.
 
 The backend uses one short synchronous SQLAlchemy session per HTTP request or
 MQTT message. A malformed message is logged and rejected without stopping the
