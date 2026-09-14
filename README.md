@@ -1,20 +1,23 @@
 # DeviceOps
 
 DeviceOps will be an IoT fleet management and observability platform.
-Milestones 1A through 3 provide a local MQTT broker, a versioned device protocol,
+Milestones 1A through 4 provide a local MQTT broker, a versioned device protocol,
 a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, and
-a read-only Next.js fleet console. Firmware is not implemented yet.
+a read-only Next.js fleet console with live updates. Firmware is not implemented
+yet.
 
 The implemented flow is:
 
 ```text
 Python simulator -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
                                          |
-                                         +-> REST API -> Next.js
+                                         +-> REST snapshots/history -> Next.js
+                                         +-> WebSocket event deltas --^
 ```
 
-FastAPI owns the MQTT subscriber and exposes read-only endpoints. The browser
-uses those REST endpoints and never connects to MQTT. Backend setup is in
+FastAPI owns the MQTT subscriber and exposes read-only REST and WebSocket
+endpoints. The browser connects only to FastAPI and never connects to MQTT.
+Backend setup is in
 [`apps/api/README.md`](apps/api/README.md); frontend setup is in
 [`apps/web/README.md`](apps/web/README.md).
 
@@ -22,9 +25,10 @@ uses those REST endpoints and never connects to MQTT. Backend setup is in
 
 The frontend provides a compact fleet inventory at <http://localhost:3000> and
 device detail pages at `/devices/{deviceId}`. It shows real API state, latest
-telemetry, server-time history charts, and recent samples. Data refreshes on page
-load or when the operator selects Refresh; WebSocket updates are outside this
-milestone.
+telemetry, server-time history charts, and recent samples. REST supplies the
+initial snapshot and history. New committed telemetry and device status events
+arrive through FastAPI's `/ws` endpoint and update the console in place. The
+explicit Refresh control remains available.
 
 ```powershell
 cd apps\web
@@ -150,6 +154,6 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Milestone 3 stops at the read-only REST-backed web console. WebSockets,
-authentication, commands, alerts, firmware, and cloud infrastructure remain
+Milestone 4 stops at real-time read-only fleet updates through FastAPI.
+Authentication, commands, alerts, firmware, and cloud infrastructure remain
 future work.

@@ -423,6 +423,43 @@ a:focus-visible,
   background: var(--border-strong);
 }
 
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.live-live {
+  color: var(--online);
+}
+
+.live-connecting,
+.live-reconnecting {
+  color: var(--warning);
+}
+
+.live-reconnecting .live-dot {
+  animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .data-table-wrap {
   overflow-x: auto;
 }

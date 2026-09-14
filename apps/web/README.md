@@ -1,7 +1,8 @@
 # DeviceOps web console
 
-The Milestone 3 frontend is a read-only Next.js operations console. It reads
-device state and telemetry through FastAPI's REST API. The browser does not
+The frontend is a read-only Next.js operations console. It loads device state
+and recent telemetry through FastAPI's REST API, then receives new committed
+telemetry and status events through one FastAPI WebSocket. The browser does not
 connect to MQTT.
 
 ## Requirements
@@ -28,6 +29,7 @@ Copy-Item .env.example .env.local
 
 ```text
 NEXT_PUBLIC_DEVICEOPS_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_DEVICEOPS_WS_URL=ws://127.0.0.1:8000/ws
 ```
 
 `.env.local` is ignored by Git. The API's local CORS allowlist accepts
@@ -41,7 +43,9 @@ npm run dev
 
 Open <http://localhost:3000>. The fleet page loads persisted devices and API
 health. Select a device row to open `/devices/{deviceId}`, where the latest
-measurements, 100-sample telemetry charts, and recent samples are shown.
+measurements, 100-sample telemetry charts, and recent samples are shown. New
+events update fleet status, last-seen timestamps, current measurements, charts,
+and the recent-samples table without polling or a page reload.
 
 If Node.js is not installed on Windows, run from the repository root with the
 official Node image instead. Dependencies remain in a temporary container
@@ -51,8 +55,11 @@ volume and are removed when the container stops:
 docker run --rm -it -p 127.0.0.1:3000:3000 -v "${PWD}:/workspace" -v /workspace/apps/web/node_modules -w /workspace/apps/web node:24-alpine sh -lc "npm ci && npm run dev -- --hostname 0.0.0.0"
 ```
 
-This milestone uses explicit Refresh controls. It does not poll, open a
-WebSocket, or access MQTT from the browser.
+The small `Live`, `Connecting`, or `Reconnecting` label shows WebSocket state.
+After a disconnect, the client retries with exponential backoff capped at ten
+seconds. When it reconnects, it reloads the REST snapshot to fill the gap before
+continuing with WebSocket deltas. Refresh remains available for an explicit
+snapshot reload. The browser never accesses MQTT directly.
 
 ## Run the full local demo
 

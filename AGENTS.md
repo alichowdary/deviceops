@@ -4,6 +4,7 @@
 - Build and verify one milestone at a time.
 - The intended flow is: Devices -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL/WebSockets -> Next.js.
 - Browsers must not communicate directly with MQTT.
+- The web console loads snapshots and history through REST, then receives new committed device events through FastAPI WebSockets.
 - The device protocol lives in `contracts/mqtt.md`.
 - Device IDs are stable identifiers, and the device protocol is versioned.
 - Do not add infrastructure merely to make the project sound impressive.

@@ -6,12 +6,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import database_is_reachable, engine
 from .mqtt import mqtt_ingestor
+from .realtime import realtime_hub
 from .routes.devices import router as devices_router
 from .schemas import HealthRead
 
@@ -24,11 +25,13 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    await realtime_hub.start()
     mqtt_ingestor.start()
     try:
         yield
     finally:
         mqtt_ingestor.stop()
+        await realtime_hub.stop()
         engine.dispose()
 
 
@@ -41,6 +44,26 @@ app.add_middleware(
     allow_headers=["Accept"],
 )
 app.include_router(devices_router)
+
+
+@app.websocket("/ws")
+async def websocket_events(websocket: WebSocket) -> None:
+    origin = websocket.headers.get("origin")
+    if origin not in settings.cors_origins:
+        logging.getLogger(__name__).warning(
+            "Rejected WebSocket connection from origin %r", origin
+        )
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await realtime_hub.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        realtime_hub.disconnect(websocket)
 
 
 @app.get("/health", response_model=HealthRead, tags=["health"])

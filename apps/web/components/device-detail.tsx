@@ -8,12 +8,14 @@ import {
   Thermometer,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, apiGet } from "@/lib/api";
+import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
 import { formatExactTime, formatRelativeTime, formatUptime } from "@/lib/format";
-import type { Device, Telemetry } from "@/lib/types";
+import type { Device, DeviceOpsEvent, Telemetry } from "@/lib/types";
 
+import { LiveConnectionIndicator } from "./live-connection-indicator";
 import { MetricValue } from "./metric-value";
 import { RecentTelemetryTable } from "./recent-telemetry-table";
 import { RefreshButton } from "./refresh-button";
@@ -37,6 +39,21 @@ const initialState: DeviceState = {
   notFound: false,
 };
 
+function mergeTelemetrySnapshots(
+  snapshot: Telemetry[],
+  current: Telemetry[] | null,
+): Telemetry[] {
+  if (current === null) return snapshot;
+  const samples = new Map<number, Telemetry>();
+  for (const sample of [...snapshot, ...current]) samples.set(sample.id, sample);
+  return [...samples.values()]
+    .sort(
+      (left, right) =>
+        new Date(left.received_at).getTime() - new Date(right.received_at).getTime(),
+    )
+    .slice(-100);
+}
+
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
   const [requestNumber, setRequestNumber] = useState(0);
   const [state, setState] = useState<DeviceState>(initialState);
@@ -53,13 +70,17 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       ),
     ])
       .then(([device, telemetry]) => {
-        setState({
-          device,
-          telemetry,
+        setState((current) => ({
+          device:
+            current.device &&
+            new Date(current.device.last_seen_at) > new Date(device.last_seen_at)
+              ? current.device
+              : device,
+          telemetry: mergeTelemetrySnapshots(telemetry, current.telemetry),
           loading: false,
           error: null,
           notFound: false,
-        });
+        }));
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -74,10 +95,49 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     return () => controller.abort();
   }, [deviceId, requestNumber]);
 
-  function refresh() {
+  const refresh = useCallback(() => {
     setState((current) => ({ ...current, loading: true, error: null }));
     setRequestNumber((value) => value + 1);
-  }
+  }, []);
+
+  const handleLiveEvent = useCallback(
+    (event: DeviceOpsEvent) => {
+      if (event.device_id !== deviceId) return;
+
+      setState((current) => {
+        if (current.device === null) return current;
+
+        if (event.type === "device_status") {
+          return {
+            ...current,
+            device: {
+              ...current.device,
+              status: event.data.status,
+              last_seen_at: event.received_at,
+            },
+          };
+        }
+
+        const sample: Telemetry = {
+          ...event.data,
+          device_id: event.device_id,
+          received_at: event.received_at,
+        };
+        return {
+          ...current,
+          device: { ...current.device, last_seen_at: event.received_at },
+          telemetry: mergeTelemetrySnapshots([sample], current.telemetry),
+        };
+      });
+    },
+    [deviceId],
+  );
+
+  const liveConnection = useDeviceOpsWebSocket({
+    enabled: state.device !== null,
+    onEvent: handleLiveEvent,
+    onReconnect: refresh,
+  });
 
   if (state.loading && state.device === null) {
     return <LoadingState label={`Loading ${deviceId}`} />;
@@ -131,6 +191,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           <p className="page-description">Observed device state and persisted telemetry</p>
         </div>
         <div className="page-actions">
+          <LiveConnectionIndicator state={liveConnection} />
           <RefreshButton loading={state.loading} onClick={refresh} />
         </div>
       </header>

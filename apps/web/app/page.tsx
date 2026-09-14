@@ -1,14 +1,16 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { DeviceTable } from "@/components/device-table";
 import { FleetSummary } from "@/components/fleet-summary";
+import { LiveConnectionIndicator } from "@/components/live-connection-indicator";
 import { RefreshButton } from "@/components/refresh-button";
 import { LoadingState, StatePanel } from "@/components/state-panel";
 import { apiGet } from "@/lib/api";
-import type { Device, Health } from "@/lib/types";
+import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
+import type { Device, DeviceOpsEvent, Health } from "@/lib/types";
 
 interface FleetState {
   devices: Device[] | null;
@@ -24,6 +26,18 @@ const initialState: FleetState = {
   error: null,
 };
 
+function mergeDeviceSnapshots(snapshot: Device[], current: Device[] | null): Device[] {
+  if (current === null) return snapshot;
+  const currentById = new Map(current.map((device) => [device.device_id, device]));
+  return snapshot.map((device) => {
+    const liveDevice = currentById.get(device.device_id);
+    return liveDevice &&
+      new Date(liveDevice.last_seen_at) > new Date(device.last_seen_at)
+      ? liveDevice
+      : device;
+  });
+}
+
 export default function FleetPage() {
   const [requestNumber, setRequestNumber] = useState(0);
   const [state, setState] = useState<FleetState>(initialState);
@@ -36,7 +50,12 @@ export default function FleetPage() {
       apiGet<Health>("/health", controller.signal),
     ])
       .then(([devices, health]) => {
-        setState({ devices, health, loading: false, error: null });
+        setState((current) => ({
+          devices: mergeDeviceSnapshots(devices, current.devices),
+          health,
+          loading: false,
+          error: null,
+        }));
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -50,10 +69,46 @@ export default function FleetPage() {
     return () => controller.abort();
   }, [requestNumber]);
 
-  function refresh() {
+  const refresh = useCallback(() => {
     setState((current) => ({ ...current, loading: true, error: null }));
     setRequestNumber((value) => value + 1);
-  }
+  }, []);
+
+  const handleLiveEvent = useCallback((event: DeviceOpsEvent) => {
+    setState((current) => {
+      if (current.devices === null) return current;
+
+      const existingIndex = current.devices.findIndex(
+        (device) => device.device_id === event.device_id,
+      );
+      const existing = current.devices[existingIndex];
+      const updated: Device = existing
+        ? {
+            ...existing,
+            status:
+              event.type === "device_status" ? event.data.status : existing.status,
+            last_seen_at: event.received_at,
+          }
+        : {
+            device_id: event.device_id,
+            status: event.type === "device_status" ? event.data.status : "unknown",
+            first_seen_at: event.received_at,
+            last_seen_at: event.received_at,
+          };
+
+      const devices = [...current.devices];
+      if (existingIndex >= 0) devices[existingIndex] = updated;
+      else devices.push(updated);
+      devices.sort((left, right) => left.device_id.localeCompare(right.device_id));
+      return { ...current, devices };
+    });
+  }, []);
+
+  const liveConnection = useDeviceOpsWebSocket({
+    enabled: state.devices !== null,
+    onEvent: handleLiveEvent,
+    onReconnect: refresh,
+  });
 
   if (state.loading && state.devices === null) {
     return <LoadingState label="Loading fleet inventory" />;
@@ -102,6 +157,8 @@ export default function FleetPage() {
           <span>PostgreSQL: {state.health.database}</span>
           <span className="health-divider" />
           <span>MQTT: {state.health.mqtt}</span>
+          <span className="health-divider" />
+          <LiveConnectionIndicator state={liveConnection} />
         </div>
       ) : null}
 

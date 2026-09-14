@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .database import SessionLocal
 from .models import Device, Telemetry
+from .realtime import realtime_hub
 from .schemas import TelemetryPayload
 
 
@@ -23,6 +24,10 @@ STATUS_SUBSCRIPTION = "deviceops/v1/devices/+/status"
 TOPIC_PATTERN = re.compile(
     r"^deviceops/v1/devices/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(telemetry|status)$"
 )
+
+
+def _utc_isoformat(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class MqttIngestor:
@@ -189,19 +194,20 @@ class MqttIngestor:
                     device.last_seen_at = received_at
 
                 additional_metrics = payload.metrics.model_extra or None
-                session.add(
-                    Telemetry(
-                        device_id=topic_device_id,
-                        sequence=payload.sequence,
-                        sent_at=payload.sent_at,
-                        received_at=received_at,
-                        temperature_c=payload.metrics.temperature_c,
-                        battery_pct=payload.metrics.battery_pct,
-                        rssi_dbm=payload.metrics.rssi_dbm,
-                        uptime_s=payload.metrics.uptime_s,
-                        additional_metrics=additional_metrics,
-                    )
+                telemetry = Telemetry(
+                    device_id=topic_device_id,
+                    sequence=payload.sequence,
+                    sent_at=payload.sent_at,
+                    received_at=received_at,
+                    temperature_c=payload.metrics.temperature_c,
+                    battery_pct=payload.metrics.battery_pct,
+                    rssi_dbm=payload.metrics.rssi_dbm,
+                    uptime_s=payload.metrics.uptime_s,
+                    additional_metrics=additional_metrics,
                 )
+                session.add(telemetry)
+                session.flush()
+                telemetry_id = telemetry.id
         except SQLAlchemyError:
             logger.exception("Database write failed for telemetry from %s", topic_device_id)
             return
@@ -211,6 +217,23 @@ class MqttIngestor:
             topic_device_id,
             payload.sequence,
             received_at.isoformat(),
+        )
+        realtime_hub.publish_from_thread(
+            {
+                "type": "telemetry",
+                "device_id": topic_device_id,
+                "received_at": _utc_isoformat(received_at),
+                "data": {
+                    "id": telemetry_id,
+                    "sequence": payload.sequence,
+                    "sent_at": _utc_isoformat(payload.sent_at),
+                    "temperature_c": payload.metrics.temperature_c,
+                    "battery_pct": payload.metrics.battery_pct,
+                    "rssi_dbm": payload.metrics.rssi_dbm,
+                    "uptime_s": payload.metrics.uptime_s,
+                    "additional_metrics": additional_metrics,
+                },
+            }
         )
 
     def _process_status(
@@ -254,6 +277,14 @@ class MqttIngestor:
             topic_device_id,
             status,
             received_at.isoformat(),
+        )
+        realtime_hub.publish_from_thread(
+            {
+                "type": "device_status",
+                "device_id": topic_device_id,
+                "received_at": _utc_isoformat(received_at),
+                "data": {"status": status},
+            }
         )
 
 

@@ -26,3 +26,22 @@ export interface Telemetry {
   uptime_s: number;
   additional_metrics: Record<string, unknown> | null;
 }
+
+export interface TelemetryEvent {
+  type: "telemetry";
+  device_id: string;
+  received_at: string;
+  data: Omit<Telemetry, "device_id" | "received_at">;
+}
+
+export interface DeviceStatusEvent {
+  type: "device_status";
+  device_id: string;
+  received_at: string;
+  data: {
+    status: DeviceStatus;
+  };
+}
+
+export type DeviceOpsEvent = TelemetryEvent | DeviceStatusEvent;
+export type LiveConnectionState = "connecting" | "live" | "reconnecting";
