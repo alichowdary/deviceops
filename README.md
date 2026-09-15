@@ -1,10 +1,10 @@
 # DeviceOps
 
 DeviceOps will be an IoT fleet management and observability platform.
-Milestones 1A through 4 provide a local MQTT broker, a versioned device protocol,
+Milestones 1A through 5 provide a local MQTT broker, a versioned device protocol,
 a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, and
-a read-only Next.js fleet console with live updates. Firmware is not implemented
-yet.
+a Next.js fleet console with live updates and device-specific remote commands.
+Firmware is not implemented yet.
 
 The implemented flow is:
 
@@ -13,9 +13,12 @@ Python simulator -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
                                          |
                                          +-> REST snapshots/history -> Next.js
                                          +-> WebSocket event deltas --^
+
+Next.js -> REST command -> FastAPI -> MQTT -> Mosquitto -> Python simulator
+Next.js <- WebSocket update <- FastAPI <- MQTT acknowledgement <--------+
 ```
 
-FastAPI owns the MQTT subscriber and exposes read-only REST and WebSocket
+FastAPI owns MQTT ingestion and publication and exposes REST and WebSocket
 endpoints. The browser connects only to FastAPI and never connects to MQTT.
 Backend setup is in
 [`apps/api/README.md`](apps/api/README.md); frontend setup is in
@@ -28,7 +31,9 @@ device detail pages at `/devices/{deviceId}`. It shows real API state, latest
 telemetry, server-time history charts, and recent samples. REST supplies the
 initial snapshot and history. New committed telemetry and device status events
 arrive through FastAPI's `/ws` endpoint and update the console in place. The
-explicit Refresh control remains available.
+device page also issues LED, reporting interval, and diagnostics commands and
+updates their persisted status from device acknowledgements. The explicit
+Refresh control remains available.
 
 ```powershell
 cd apps\web
@@ -39,8 +44,8 @@ npm run dev
 ## Device protocol and simulator
 
 The version 1 MQTT topic and payload contract is in
-[`contracts/mqtt.md`](contracts/mqtt.md). It defines telemetry and retained device
-presence behavior and reserves command topics without implementing commands.
+[`contracts/mqtt.md`](contracts/mqtt.md). It defines telemetry, retained device
+presence, commands, acknowledgements, and their delivery semantics.
 
 Installation, run, and observation instructions for the Python simulator are in
 [`simulator/README.md`](simulator/README.md). With the broker running and the
@@ -154,6 +159,6 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Milestone 4 stops at real-time read-only fleet updates through FastAPI.
-Authentication, commands, alerts, firmware, and cloud infrastructure remain
-future work.
+Milestone 5 stops at the three explicit simulator commands and their persisted
+acknowledgements. Authentication, alerts, ESP32 firmware, OTA updates, and cloud
+infrastructure remain future work.

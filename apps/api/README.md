@@ -1,8 +1,9 @@
 # DeviceOps API
 
 The backend runs FastAPI and owns the MQTT subscriber. It validates version 1
-device messages, stores device state and telemetry in PostgreSQL, provides a
-small read-only REST API, and broadcasts newly committed device events at `/ws`.
+device messages, stores device state, telemetry, and command history in
+PostgreSQL, publishes validated operator commands, and broadcasts newly
+committed device events at `/ws`.
 
 ## Local setup
 
@@ -67,11 +68,33 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 Invoke-RestMethod http://127.0.0.1:8000/api/devices
 Invoke-RestMethod http://127.0.0.1:8000/api/devices/sim-001
 Invoke-RestMethod "http://127.0.0.1:8000/api/devices/sim-001/telemetry?limit=100"
+Invoke-RestMethod "http://127.0.0.1:8000/api/devices/sim-001/commands?limit=20"
 ```
 
 Telemetry is returned oldest-to-newest within the requested recent window. The
 default limit is 100 and the maximum is 500. Unknown devices return HTTP 404.
 Interactive OpenAPI documentation is at <http://127.0.0.1:8000/docs>.
+
+## Issue commands
+
+The browser submits commands through FastAPI; it never receives MQTT access.
+For example:
+
+```powershell
+$body = @{ type = "set_led"; arguments = @{ on = $true } } | ConvertTo-Json
+Invoke-RestMethod -Method Post -ContentType "application/json" -Body $body `
+  http://127.0.0.1:8000/api/devices/sim-001/commands
+```
+
+`POST /api/devices/{device_id}/commands` validates the request, creates a UUID,
+commits a `pending` row, and publishes the command with QoS 1 and no retention.
+It returns HTTP 201 while the command is still pending. Only a matching device
+acknowledgement can change it to `succeeded` or `failed`.
+
+`GET /api/devices/{device_id}/commands?limit=20` returns newest-first command
+history. The limit range is 1–100. Automatic timeouts are intentionally absent:
+an unacknowledged command remains pending, making the missing device evidence
+visible without introducing a scheduler.
 
 ## Live events
 
@@ -108,6 +131,26 @@ Status events use the same outer fields with a smaller payload:
   "device_id": "sim-001",
   "received_at": "2026-09-14T21:20:52.874463Z",
   "data": { "status": "offline" }
+}
+```
+
+Committed acknowledgements produce a command update:
+
+```json
+{
+  "type": "command_update",
+  "device_id": "sim-001",
+  "received_at": "2026-09-14T22:15:11.709812Z",
+  "data": {
+    "command_id": "246efa2b-798e-4c53-a53e-fe1853090044",
+    "type": "set_led",
+    "status": "succeeded",
+    "arguments": { "on": true },
+    "issued_at": "2026-09-14T22:15:11.691858Z",
+    "acknowledged_at": "2026-09-14T22:15:11.709812Z",
+    "ack_sent_at": "2026-09-14T22:15:11.706000Z",
+    "result": { "on": true }
+  }
 }
 ```
 

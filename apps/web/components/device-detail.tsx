@@ -10,13 +10,21 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, apiGet } from "@/lib/api";
+import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
 import { formatExactTime, formatRelativeTime, formatUptime } from "@/lib/format";
-import type { Device, DeviceOpsEvent, Telemetry } from "@/lib/types";
+import type {
+  CommandRequest,
+  Device,
+  DeviceCommand,
+  DeviceOpsEvent,
+  Telemetry,
+} from "@/lib/types";
 
+import { DeviceControl } from "./device-control";
 import { LiveConnectionIndicator } from "./live-connection-indicator";
 import { MetricValue } from "./metric-value";
+import { RecentCommands } from "./recent-commands";
 import { RecentTelemetryTable } from "./recent-telemetry-table";
 import { RefreshButton } from "./refresh-button";
 import { LoadingState, StatePanel } from "./state-panel";
@@ -26,6 +34,7 @@ import { TelemetryChart } from "./telemetry-chart";
 interface DeviceState {
   device: Device | null;
   telemetry: Telemetry[] | null;
+  commands: DeviceCommand[] | null;
   loading: boolean;
   error: string | null;
   notFound: boolean;
@@ -34,6 +43,7 @@ interface DeviceState {
 const initialState: DeviceState = {
   device: null,
   telemetry: null,
+  commands: null,
   loading: true,
   error: null,
   notFound: false,
@@ -54,6 +64,27 @@ function mergeTelemetrySnapshots(
     .slice(-100);
 }
 
+function mergeCommandSnapshots(
+  snapshot: DeviceCommand[],
+  current: DeviceCommand[] | null,
+): DeviceCommand[] {
+  const commands = new Map(
+    (current ?? []).map((command) => [command.command_id, command]),
+  );
+  for (const candidate of snapshot) {
+    const existing = commands.get(candidate.command_id);
+    if (!existing || existing.status === "pending" || candidate.status !== "pending") {
+      commands.set(candidate.command_id, candidate);
+    }
+  }
+  return [...commands.values()]
+    .sort(
+      (left, right) =>
+        new Date(right.issued_at).getTime() - new Date(left.issued_at).getTime(),
+    )
+    .slice(0, 20);
+}
+
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
   const [requestNumber, setRequestNumber] = useState(0);
   const [state, setState] = useState<DeviceState>(initialState);
@@ -68,8 +99,12 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         `/api/devices/${encodedDeviceId}/telemetry?limit=100`,
         controller.signal,
       ),
+      apiGet<DeviceCommand[]>(
+        `/api/devices/${encodedDeviceId}/commands?limit=20`,
+        controller.signal,
+      ),
     ])
-      .then(([device, telemetry]) => {
+      .then(([device, telemetry, commands]) => {
         setState((current) => ({
           device:
             current.device &&
@@ -77,6 +112,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               ? current.device
               : device,
           telemetry: mergeTelemetrySnapshots(telemetry, current.telemetry),
+          commands: mergeCommandSnapshots(commands, current.commands),
           loading: false,
           error: null,
           notFound: false,
@@ -106,6 +142,17 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
       setState((current) => {
         if (current.device === null) return current;
+
+        if (event.type === "command_update") {
+          const command: DeviceCommand = {
+            ...event.data,
+            device_id: event.device_id,
+          };
+          return {
+            ...current,
+            commands: mergeCommandSnapshots([command], current.commands),
+          };
+        }
 
         if (event.type === "device_status") {
           return {
@@ -139,6 +186,21 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     onReconnect: refresh,
   });
 
+  const submitCommand = useCallback(
+    async (request: CommandRequest) => {
+      const command = await apiPost<DeviceCommand>(
+        `/api/devices/${encodeURIComponent(deviceId)}/commands`,
+        request,
+      );
+      setState((current) => ({
+        ...current,
+        commands: mergeCommandSnapshots([command], current.commands),
+      }));
+      return command;
+    },
+    [deviceId],
+  );
+
   if (state.loading && state.device === null) {
     return <LoadingState label={`Loading ${deviceId}`} />;
   }
@@ -171,6 +233,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
   const device = state.device;
   const telemetry = state.telemetry ?? [];
+  const commands = state.commands ?? [];
   if (!device) return null;
   const latest = telemetry.at(-1);
 
@@ -220,6 +283,11 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           </span>
         </div>
       </section>
+
+      <div className="command-grid">
+        <DeviceControl commands={commands} submitCommand={submitCommand} />
+        <RecentCommands commands={commands} />
+      </div>
 
       {latest ? (
         <>

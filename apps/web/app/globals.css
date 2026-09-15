@@ -662,6 +662,130 @@ a:focus-visible,
   letter-spacing: 0;
 }
 
+.command-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(520px, 1.6fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.control-body {
+  padding: 4px 14px 10px;
+}
+
+.control-row {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #222a31;
+}
+
+.control-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.control-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.control-input {
+  width: 64px;
+  height: 32px;
+  padding: 4px 20px 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: #0d1216;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.input-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.control-feedback {
+  min-height: 37px;
+  padding-top: 9px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.control-feedback-pending {
+  color: var(--warning);
+}
+
+.control-feedback-success {
+  color: var(--online);
+}
+
+.control-feedback-error {
+  color: var(--offline);
+}
+
+.commands-panel {
+  min-width: 0;
+}
+
+.commands-table td {
+  height: 45px;
+}
+
+.command-status {
+  display: inline-flex;
+  padding: 2px 6px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 17px;
+  text-transform: capitalize;
+}
+
+.command-status-pending {
+  border-color: #66542d;
+  background: #2b2517;
+  color: var(--warning);
+}
+
+.command-status-succeeded {
+  border-color: #285f46;
+  background: var(--online-muted);
+  color: #83dcad;
+}
+
+.command-status-failed {
+  border-color: #683235;
+  background: var(--offline-muted);
+  color: #f59494;
+}
+
+.command-detail {
+  max-width: 330px;
+  overflow: hidden;
+  color: var(--muted) !important;
+  text-overflow: ellipsis;
+}
+
+.commands-empty {
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -717,6 +841,10 @@ a:focus-visible,
 }
 
 @media (max-width: 1040px) {
+  .command-grid {
+    grid-template-columns: 1fr;
+  }
+
   .chart-grid {
     grid-template-columns: 1fr;
   }
@@ -796,6 +924,12 @@ a:focus-visible,
   .detail-meta-item + .detail-meta-item {
     border-top: 1px solid var(--border);
     border-left: 0;
+  }
+
+  .control-row {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 9px 0;
   }
 }
 

@@ -1,4 +1,4 @@
-"""Database models for devices and their telemetry samples."""
+"""Database models for devices, telemetry, and operator commands."""
 
 from __future__ import annotations
 
@@ -55,3 +55,26 @@ class Telemetry(Base):
     rssi_dbm: Mapped[int] = mapped_column(Integer, nullable=False)
     uptime_s: Mapped[int] = mapped_column(BigInteger, nullable=False)
     additional_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+
+class DeviceCommand(Base):
+    __tablename__ = "commands"
+    __table_args__ = (
+        Index("ix_commands_device_issued_at", "device_id", "issued_at"),
+    )
+
+    command_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    device_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=False
+    )
+    command_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    arguments: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ack_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

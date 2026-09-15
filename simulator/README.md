@@ -2,7 +2,8 @@
 
 This small Python process behaves like one DeviceOps device. It connects to the
 local Mosquitto broker, publishes gradually changing telemetry, and maintains a
-retained online/offline status. Its MQTT contract is documented in
+retained online/offline status. It also executes the three version 1 commands
+documented in
 [`../contracts/mqtt.md`](../contracts/mqtt.md).
 
 ## Install
@@ -40,6 +41,18 @@ Override either with standard CLI options:
 ```powershell
 python -m device_simulator --device-id sim-002 --interval 2.5
 ```
+
+After connecting, the simulator subscribes to its device-specific command topic
+with QoS 1. Supported commands turn its internal LED state on or off, change the
+running telemetry interval within 1–60 seconds, and return diagnostics. State
+changes and failures are printed in the simulator terminal. Acknowledgements use
+QoS 1 and are not retained.
+
+The MQTT callback and telemetry loop share LED, interval, and diagnostic state
+through a condition lock. Changing the interval wakes the telemetry loop so the
+new cadence takes effect immediately. The simulator caches the 100 most recent
+acknowledgements for its process lifetime; duplicate QoS 1 deliveries resend the
+same acknowledgement without repeating the side effect.
 
 Press Ctrl+C for a clean shutdown. The simulator publishes retained `offline`
 before disconnecting. If the process or network connection disappears without a

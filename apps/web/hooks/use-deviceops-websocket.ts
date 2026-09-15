@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import type {
+  CommandStatus,
+  CommandType,
   DeviceOpsEvent,
   DeviceStatus,
   LiveConnectionState,
@@ -18,6 +20,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isDeviceStatus(value: unknown): value is DeviceStatus {
   return value === "online" || value === "offline" || value === "unknown";
+}
+
+function isCommandStatus(value: unknown): value is CommandStatus {
+  return value === "pending" || value === "succeeded" || value === "failed";
+}
+
+function isCommandType(value: unknown): value is CommandType {
+  return (
+    value === "set_led" ||
+    value === "set_reporting_interval" ||
+    value === "request_diagnostics"
+  );
 }
 
 function parseEvent(rawMessage: string): DeviceOpsEvent | null {
@@ -38,6 +52,20 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
   }
 
   if (event.type === "device_status" && isDeviceStatus(event.data.status)) {
+    return event as unknown as DeviceOpsEvent;
+  }
+
+  if (
+    event.type === "command_update" &&
+    typeof event.data.command_id === "string" &&
+    isCommandType(event.data.type) &&
+    isCommandStatus(event.data.status) &&
+    isRecord(event.data.arguments) &&
+    typeof event.data.issued_at === "string" &&
+    typeof event.data.acknowledged_at === "string" &&
+    typeof event.data.ack_sent_at === "string" &&
+    isRecord(event.data.result)
+  ) {
     return event as unknown as DeviceOpsEvent;
   }
 

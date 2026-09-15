@@ -15,11 +15,11 @@ underscores, and hyphens; they must not contain `/`, `+`, or `#`.
 | --- | --- |
 | Telemetry | `deviceops/v1/devices/{device_id}/telemetry` |
 | Presence/status | `deviceops/v1/devices/{device_id}/status` |
-| Commands (reserved) | `deviceops/v1/devices/{device_id}/commands` |
-| Command acknowledgements (reserved) | `deviceops/v1/devices/{device_id}/command-acks` |
+| Commands | `deviceops/v1/devices/{device_id}/commands` |
+| Command acknowledgements | `deviceops/v1/devices/{device_id}/command-acks` |
 
-The commands and command acknowledgement topics are reserved for a later
-milestone. Their payloads and behavior are not defined or implemented yet.
+Commands travel from FastAPI to a device. Acknowledgements travel from the
+device back to FastAPI. Browsers never connect to MQTT.
 
 ## Telemetry
 
@@ -72,6 +72,61 @@ the connection disappears unexpectedly, Mosquitto publishes the Last Will.
 The retained status is useful connection evidence, but it is not a complete
 lifecycle policy. Application-level offline timeouts belong to a later backend
 milestone.
+
+## Commands
+
+Commands are UTF-8 JSON objects published with QoS 1 and `retain=false`:
+
+```json
+{
+  "protocol_version": 1,
+  "command_id": "246efa2b-798e-4c53-a53e-fe1853090044",
+  "device_id": "sim-001",
+  "issued_at": "2026-09-14T22:15:11.691858Z",
+  "type": "set_led",
+  "arguments": { "on": true }
+}
+```
+
+`command_id` is a server-generated UUID v4 and ties the request to its
+acknowledgement. `issued_at` is server UTC time. Version 1 supports only:
+
+| Type | Arguments | Behavior |
+| --- | --- | --- |
+| `set_led` | `{ "on": true }` or `{ "on": false }` | Changes the device LED state. |
+| `set_reporting_interval` | `{ "interval_s": 2 }` | Changes telemetry cadence; range 1–60 seconds. |
+| `request_diagnostics` | `{}` | Returns concise current device state. |
+
+Commands are not retained because a device reconnecting later must not execute
+a stale side effect. QoS 1 asks the broker to deliver at least once while the
+device is subscribed, but duplicate delivery remains possible.
+
+## Command acknowledgements
+
+After validating and executing a command, the device publishes a UTF-8 JSON
+acknowledgement with QoS 1 and `retain=false`:
+
+```json
+{
+  "protocol_version": 1,
+  "command_id": "246efa2b-798e-4c53-a53e-fe1853090044",
+  "device_id": "sim-001",
+  "sent_at": "2026-09-14T22:15:11.706Z",
+  "status": "succeeded",
+  "result": { "on": true }
+}
+```
+
+A command the device can identify but cannot validate produces
+`status: "failed"` and a concise `result.error`. Acknowledgements are not retained
+because command history belongs in PostgreSQL. FastAPI uses its own receipt time
+for the authoritative `acknowledged_at`; device `sent_at` is retained only as
+evidence.
+
+QoS 1 can deliver the same command more than once. The simulator remembers the
+100 most recent command IDs for its process lifetime and resends the cached
+acknowledgement without executing a duplicate side effect. FastAPI also ignores
+acknowledgements for commands already in a terminal state.
 
 ## Device time and server time
 

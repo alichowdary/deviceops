@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 DEVICE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -66,3 +66,69 @@ class HealthRead(BaseModel):
     database: Literal["up", "down"]
     mqtt: Literal["up", "down"]
     mqtt_error: str | None = None
+
+
+CommandType = Literal["set_led", "set_reporting_interval", "request_diagnostics"]
+CommandStatus = Literal["pending", "succeeded", "failed"]
+
+
+class CommandCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: CommandType
+    arguments: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_arguments(self) -> "CommandCreate":
+        if self.type == "set_led":
+            if set(self.arguments) != {"on"} or not isinstance(
+                self.arguments.get("on"), bool
+            ):
+                raise ValueError("set_led arguments must be exactly {'on': boolean}")
+        elif self.type == "set_reporting_interval":
+            interval = self.arguments.get("interval_s")
+            if (
+                set(self.arguments) != {"interval_s"}
+                or isinstance(interval, bool)
+                or not isinstance(interval, (int, float))
+                or not 1 <= interval <= 60
+            ):
+                raise ValueError(
+                    "set_reporting_interval arguments must be exactly "
+                    "{'interval_s': number from 1 to 60}"
+                )
+        elif self.arguments:
+            raise ValueError("request_diagnostics arguments must be empty")
+        return self
+
+
+class CommandAckPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocol_version: Literal[1]
+    command_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+    device_id: str = Field(pattern=DEVICE_ID_PATTERN, max_length=64)
+    sent_at: datetime
+    status: Literal["succeeded", "failed"]
+    result: dict[str, Any]
+
+    @field_validator("sent_at")
+    @classmethod
+    def sent_at_must_be_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("sent_at must include a UTC offset")
+        return value
+
+
+class CommandRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    command_id: str
+    device_id: str
+    type: CommandType = Field(validation_alias="command_type")
+    arguments: dict[str, Any]
+    status: CommandStatus
+    issued_at: datetime
+    acknowledged_at: datetime | None
+    ack_sent_at: datetime | None
+    result: dict[str, Any] | None

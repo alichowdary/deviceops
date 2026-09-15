@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import logging
 import re
 
@@ -12,22 +13,28 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .config import settings
 from .database import SessionLocal
-from .models import Device, Telemetry
+from .models import Device, DeviceCommand, Telemetry
 from .realtime import realtime_hub
-from .schemas import TelemetryPayload
+from .schemas import CommandAckPayload, TelemetryPayload
 
 
 logger = logging.getLogger(__name__)
 
 TELEMETRY_SUBSCRIPTION = "deviceops/v1/devices/+/telemetry"
 STATUS_SUBSCRIPTION = "deviceops/v1/devices/+/status"
+COMMAND_ACK_SUBSCRIPTION = "deviceops/v1/devices/+/command-acks"
 TOPIC_PATTERN = re.compile(
-    r"^deviceops/v1/devices/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/(telemetry|status)$"
+    r"^deviceops/v1/devices/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/"
+    r"(telemetry|status|command-acks)$"
 )
 
 
 def _utc_isoformat(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class MqttPublishError(RuntimeError):
+    """Raised when FastAPI cannot confirm publication to the MQTT broker."""
 
 
 class MqttIngestor:
@@ -78,6 +85,40 @@ class MqttIngestor:
         self._started = False
         logger.info("MQTT client stopped")
 
+    def publish_command(self, command: DeviceCommand) -> None:
+        if not self._connected:
+            raise MqttPublishError("MQTT is not connected")
+
+        topic = f"deviceops/v1/devices/{command.device_id}/commands"
+        payload = json.dumps(
+            {
+                "protocol_version": 1,
+                "command_id": command.command_id,
+                "device_id": command.device_id,
+                "issued_at": _utc_isoformat(command.issued_at),
+                "type": command.command_type,
+                "arguments": command.arguments,
+            },
+            separators=(",", ":"),
+        )
+        publish = self._client.publish(topic, payload, qos=1, retain=False)
+        if publish.rc != mqtt.MQTT_ERR_SUCCESS:
+            raise MqttPublishError(mqtt.error_string(publish.rc))
+
+        try:
+            publish.wait_for_publish(timeout=5)
+        except RuntimeError as exc:
+            raise MqttPublishError(str(exc)) from exc
+        if not publish.is_published():
+            raise MqttPublishError("timed out waiting for broker acknowledgement")
+
+        logger.info(
+            "Published command device=%s command_id=%s type=%s",
+            command.device_id,
+            command.command_id,
+            command.command_type,
+        )
+
     def _on_connect(
         self,
         client: mqtt.Client,
@@ -93,7 +134,11 @@ class MqttIngestor:
             return
 
         result, _message_id = client.subscribe(
-            [(TELEMETRY_SUBSCRIPTION, 0), (STATUS_SUBSCRIPTION, 1)]
+            [
+                (TELEMETRY_SUBSCRIPTION, 0),
+                (STATUS_SUBSCRIPTION, 1),
+                (COMMAND_ACK_SUBSCRIPTION, 1),
+            ]
         )
         if result != mqtt.MQTT_ERR_SUCCESS:
             self._connected = False
@@ -104,9 +149,10 @@ class MqttIngestor:
         self._connected = True
         self._last_error = None
         logger.info(
-            "MQTT connected; subscribed to %s and %s",
+            "MQTT connected; subscribed to %s, %s, and %s",
             TELEMETRY_SUBSCRIPTION,
             STATUS_SUBSCRIPTION,
+            COMMAND_ACK_SUBSCRIPTION,
         )
 
     def _on_connect_fail(self, _client: mqtt.Client, _userdata: object) -> None:
@@ -152,8 +198,10 @@ class MqttIngestor:
 
         if message_kind == "telemetry":
             self._process_telemetry(topic_device_id, payload, received_at)
-        else:
+        elif message_kind == "status":
             self._process_status(topic_device_id, payload, received_at)
+        else:
+            self._process_command_ack(topic_device_id, payload, received_at)
 
     def _process_telemetry(
         self,
@@ -284,6 +332,95 @@ class MqttIngestor:
                 "device_id": topic_device_id,
                 "received_at": _utc_isoformat(received_at),
                 "data": {"status": status},
+            }
+        )
+
+    def _process_command_ack(
+        self,
+        topic_device_id: str,
+        raw_payload: bytes,
+        received_at: datetime,
+    ) -> None:
+        try:
+            payload = CommandAckPayload.model_validate_json(raw_payload)
+        except ValidationError as exc:
+            logger.warning(
+                "Rejected malformed command acknowledgement for device %s: %s",
+                topic_device_id,
+                exc.errors(include_url=False, include_input=False),
+            )
+            return
+
+        if payload.device_id != topic_device_id:
+            logger.warning(
+                "Rejected command acknowledgement device ID mismatch: topic=%s payload=%s",
+                topic_device_id,
+                payload.device_id,
+            )
+            return
+
+        try:
+            with SessionLocal.begin() as session:
+                command = session.get(DeviceCommand, payload.command_id)
+                if command is None:
+                    logger.warning(
+                        "Ignored acknowledgement for unknown command_id=%s device=%s",
+                        payload.command_id,
+                        topic_device_id,
+                    )
+                    return
+                if command.device_id != topic_device_id:
+                    logger.warning(
+                        "Rejected acknowledgement command/device mismatch: "
+                        "command_id=%s expected=%s received=%s",
+                        payload.command_id,
+                        command.device_id,
+                        topic_device_id,
+                    )
+                    return
+                if command.status != "pending":
+                    logger.info(
+                        "Ignored duplicate acknowledgement command_id=%s status=%s",
+                        payload.command_id,
+                        command.status,
+                    )
+                    return
+
+                command.status = payload.status
+                command.result = payload.result
+                command.ack_sent_at = payload.sent_at
+                command.acknowledged_at = received_at
+                command_type = command.command_type
+                arguments = command.arguments
+                issued_at = command.issued_at
+        except SQLAlchemyError:
+            logger.exception(
+                "Database update failed for acknowledgement command_id=%s",
+                payload.command_id,
+            )
+            return
+
+        logger.info(
+            "Stored command acknowledgement device=%s command_id=%s status=%s",
+            topic_device_id,
+            payload.command_id,
+            payload.status,
+        )
+        realtime_hub.publish_from_thread(
+            {
+                "type": "command_update",
+                "device_id": topic_device_id,
+                "received_at": _utc_isoformat(received_at),
+                "data": {
+                    "command_id": payload.command_id,
+                    "type": command_type,
+                    "status": payload.status,
+                    "arguments": arguments,
+                    "issued_at": _utc_isoformat(issued_at),
+                    "acknowledged_at": _utc_isoformat(received_at),
+                    "ack_sent_at": _utc_isoformat(payload.sent_at),
+                    "result": payload.result,
+                },
             }
         )
 

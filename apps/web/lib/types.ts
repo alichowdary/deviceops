@@ -27,6 +27,29 @@ export interface Telemetry {
   additional_metrics: Record<string, unknown> | null;
 }
 
+export type CommandType =
+  | "set_led"
+  | "set_reporting_interval"
+  | "request_diagnostics";
+export type CommandStatus = "pending" | "succeeded" | "failed";
+
+export interface DeviceCommand {
+  command_id: string;
+  device_id: string;
+  type: CommandType;
+  arguments: Record<string, unknown>;
+  status: CommandStatus;
+  issued_at: string;
+  acknowledged_at: string | null;
+  ack_sent_at: string | null;
+  result: Record<string, unknown> | null;
+}
+
+export interface CommandRequest {
+  type: CommandType;
+  arguments: Record<string, unknown>;
+}
+
 export interface TelemetryEvent {
   type: "telemetry";
   device_id: string;
@@ -43,5 +66,15 @@ export interface DeviceStatusEvent {
   };
 }
 
-export type DeviceOpsEvent = TelemetryEvent | DeviceStatusEvent;
+export interface CommandUpdateEvent {
+  type: "command_update";
+  device_id: string;
+  received_at: string;
+  data: Omit<DeviceCommand, "device_id">;
+}
+
+export type DeviceOpsEvent =
+  | TelemetryEvent
+  | DeviceStatusEvent
+  | CommandUpdateEvent;
 export type LiveConnectionState = "connecting" | "live" | "reconnecting";

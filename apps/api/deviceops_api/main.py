@@ -13,6 +13,7 @@ from .config import settings
 from .database import database_is_reachable, engine
 from .mqtt import mqtt_ingestor
 from .realtime import realtime_hub
+from .routes.commands import router as commands_router
 from .routes.devices import router as devices_router
 from .schemas import HealthRead
 
@@ -40,10 +41,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["GET"],
-    allow_headers=["Accept"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Accept", "Content-Type"],
 )
 app.include_router(devices_router)
+app.include_router(commands_router)
 
 
 @app.websocket("/ws")

@@ -1,9 +1,9 @@
 # DeviceOps web console
 
-The frontend is a read-only Next.js operations console. It loads device state
-and recent telemetry through FastAPI's REST API, then receives new committed
-telemetry and status events through one FastAPI WebSocket. The browser does not
-connect to MQTT.
+The frontend is a Next.js operations console. It loads device state, telemetry,
+and command history through FastAPI's REST API, then receives new committed
+telemetry, status, and command updates through one FastAPI WebSocket. The browser
+does not connect to MQTT.
 
 ## Requirements
 
@@ -45,7 +45,10 @@ Open <http://localhost:3000>. The fleet page loads persisted devices and API
 health. Select a device row to open `/devices/{deviceId}`, where the latest
 measurements, 100-sample telemetry charts, and recent samples are shown. New
 events update fleet status, last-seen timestamps, current measurements, charts,
-and the recent-samples table without polling or a page reload.
+and the recent-samples table without polling or a page reload. Device detail also
+provides compact controls for LED state, reporting interval, and diagnostics,
+plus a newest-first command history. Submitted commands display as pending until
+the simulator acknowledgement arrives through the WebSocket.
 
 If Node.js is not installed on Windows, run from the repository root with the
 official Node image instead. Dependencies remain in a temporary container

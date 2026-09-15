@@ -45,3 +45,44 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
 
   return (await response.json()) as T;
 }
+
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(
+      `Cannot reach the DeviceOps API at ${API_BASE_URL}.`,
+      null,
+    );
+  }
+
+  if (!response.ok) {
+    let detail = `The API returned HTTP ${response.status}.`;
+    try {
+      const responseBody = (await response.json()) as {
+        detail?: string | Array<{ msg?: string }>;
+      };
+      if (typeof responseBody.detail === "string") detail = responseBody.detail;
+      else if (Array.isArray(responseBody.detail)) {
+        detail = responseBody.detail
+          .map((item) => item.msg)
+          .filter(Boolean)
+          .join("; ");
+      }
+    } catch {
+      // The status code is sufficient when the response is not JSON.
+    }
+    throw new ApiError(detail, response.status);
+  }
+
+  return (await response.json()) as T;
+}
