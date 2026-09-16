@@ -40,7 +40,7 @@ export function RecentCommands({ commands }: { commands: DeviceCommand[] }) {
     <section className="panel commands-panel">
       <div className="section-header">
         <h2 className="section-title">Recent commands</h2>
-        <span className="section-meta">newest first · {commands.length} shown</span>
+        <span className="section-meta">newest first · 10 shown</span>
       </div>
       {commands.length === 0 ? (
         <div className="commands-empty">No commands have been issued to this device.</div>

@@ -1,21 +1,21 @@
 # DeviceOps
 
-DeviceOps will be an IoT fleet management and observability platform.
-Milestones 1A through 5 provide a local MQTT broker, a versioned device protocol,
-a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, and
-a Next.js fleet console with live updates and device-specific remote commands.
-Firmware is not implemented yet.
+DeviceOps is an incremental IoT fleet management and observability project.
+Milestones 1A through 6 provide a local MQTT broker, a versioned device protocol,
+a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, a
+Next.js fleet console with live updates and device-specific remote commands, and
+a verified ESP32-S3 reference firmware project.
 
 The implemented flow is:
 
 ```text
-Python simulator -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
-                                         |
-                                         +-> REST snapshots/history -> Next.js
-                                         +-> WebSocket event deltas --^
+Device (simulator or ESP32) -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
+                                                    |
+                                                    +-> REST snapshots/history -> Next.js
+                                                    +-> WebSocket event deltas --^
 
-Next.js -> REST command -> FastAPI -> MQTT -> Mosquitto -> Python simulator
-Next.js <- WebSocket update <- FastAPI <- MQTT acknowledgement <--------+
+Next.js -> REST command -> FastAPI -> MQTT -> Mosquitto -> Device
+Next.js <- WebSocket update <- FastAPI <- MQTT acknowledgement <-+
 ```
 
 FastAPI owns MQTT ingestion and publication and exposes REST and WebSocket
@@ -56,6 +56,16 @@ cd simulator
 .\.venv\Scripts\Activate.ps1
 python -m device_simulator --device-id sim-001 --interval 5
 ```
+
+## ESP32 reference firmware
+
+The [`firmware/esp32`](firmware/esp32) PlatformIO project contains the verified
+reference implementation for an ESP32-S3, a BME280 at address `0x76`, and the
+board's WS2812 RGB LED. It publishes real environmental telemetry and implements
+the same presence and command protocol as the simulator. See the
+[`firmware/esp32/README.md`](firmware/esp32/README.md) for wiring, local secrets,
+build, upload, and serial-monitor instructions. This firmware is one compatible
+device implementation, not a requirement for every DeviceOps device.
 
 ## Local broker
 
@@ -160,8 +170,7 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Milestone 6 adds nullable battery, humidity, and pressure telemetry so
-battery-powered simulators and battery-free sensor devices can share the same
-ingestion and console paths. ESP32 firmware, automatic capability discovery,
-authentication, alerts, OTA updates, and cloud infrastructure remain outside
-this repository milestone.
+Milestone 6 supports battery-powered simulators and battery-free environmental
+sensors through the same ingestion and console paths, and includes the verified
+ESP32 reference firmware. Automatic capability discovery, authentication,
+alerts, OTA updates, and cloud infrastructure remain future work.

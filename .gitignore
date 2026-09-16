@@ -6,3 +6,6 @@ node_modules/
 .next/
 .env*.local
 *.tsbuildinfo
+firmware/esp32/.pio/
+firmware/esp32/.vscode/
+firmware/esp32/include/secrets.h

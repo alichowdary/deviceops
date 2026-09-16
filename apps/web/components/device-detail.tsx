@@ -51,6 +51,8 @@ const initialState: DeviceState = {
   notFound: false,
 };
 
+const RECENT_COMMAND_LIMIT = 10;
+
 function mergeTelemetrySnapshots(
   snapshot: Telemetry[],
   current: Telemetry[] | null,
@@ -84,7 +86,7 @@ function mergeCommandSnapshots(
       (left, right) =>
         new Date(right.issued_at).getTime() - new Date(left.issued_at).getTime(),
     )
-    .slice(0, 20);
+    .slice(0, RECENT_COMMAND_LIMIT);
 }
 
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
@@ -102,7 +104,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         controller.signal,
       ),
       apiGet<DeviceCommand[]>(
-        `/api/devices/${encodedDeviceId}/commands?limit=20`,
+        `/api/devices/${encodedDeviceId}/commands?limit=${RECENT_COMMAND_LIMIT}`,
         controller.signal,
       ),
     ])

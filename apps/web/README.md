@@ -47,8 +47,8 @@ measurements, 100-sample telemetry charts, and recent samples are shown. New
 events update fleet status, last-seen timestamps, current measurements, charts,
 and the recent-samples table without polling or a page reload. Device detail also
 provides compact controls for LED state, reporting interval, and diagnostics,
-plus a newest-first command history. Submitted commands display as pending until
-the simulator acknowledgement arrives through the WebSocket. Metric cards,
+plus the newest 10 commands. Submitted commands display as pending until the
+device acknowledgement arrives through the WebSocket. Metric cards,
 charts, and recent-sample columns appear only when the device reports that
 optional measurement, so battery-powered simulators and battery-free sensor
 devices share the same detail page without empty charts.
