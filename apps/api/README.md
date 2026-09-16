@@ -116,12 +116,19 @@ Telemetry events use this envelope:
     "sent_at": "2026-09-14T21:16:49.334000Z",
     "temperature_c": 24.7,
     "battery_pct": 84.75,
+    "humidity_pct": null,
+    "pressure_hpa": null,
     "rssi_dbm": -56,
     "uptime_s": 1290,
     "additional_metrics": null
   }
 }
 ```
+
+Battery, humidity, and pressure are nullable first-class measurements. The
+simulator supplies battery, while a sensor device may omit battery and supply
+humidity and pressure. Omitted measurements are returned as `null`; unknown
+compatible measurements continue to use `additional_metrics`.
 
 Status events use the same outer fields with a smaller payload:
 

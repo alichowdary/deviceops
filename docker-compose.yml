@@ -2,8 +2,8 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine
     ports:
-      # Local development only: expose MQTT on this computer's loopback address.
-      - "127.0.0.1:1883:1883"
+      # Local development only: expose MQTT to LAN devices such as the ESP32.
+      - "1883:1883"
     volumes:
       # Mount our broker configuration read-only.
       - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro

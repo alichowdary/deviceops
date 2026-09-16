@@ -32,10 +32,11 @@ Telemetry is a UTF-8 JSON object:
   "sent_at": "2026-09-14T16:30:05.123Z",
   "sequence": 1,
   "metrics": {
-    "temperature_c": 24.7,
-    "battery_pct": 91.2,
-    "rssi_dbm": -55,
-    "uptime_s": 20
+    "temperature_c": 23.01,
+    "humidity_pct": 54.52,
+    "pressure_hpa": 1025.31,
+    "rssi_dbm": -51,
+    "uptime_s": 12
   }
 }
 ```
@@ -47,12 +48,23 @@ Telemetry is a UTF-8 JSON object:
 | `sent_at` | string | Device time as a UTC ISO-8601 timestamp ending in `Z`. |
 | `sequence` | integer | Starts at `1` and increases once per telemetry message for the lifetime of the device process. |
 | `metrics.temperature_c` | number | Temperature in degrees Celsius. |
-| `metrics.battery_pct` | number | Remaining battery percentage from `0` to `100`. |
+| `metrics.battery_pct` | number, optional | Remaining battery percentage from `0` to `100`. Omit it for devices without a battery. |
+| `metrics.humidity_pct` | number, optional | Relative humidity percentage from `0` to `100`. |
+| `metrics.pressure_hpa` | number, optional | Atmospheric pressure in hectopascals. |
 | `metrics.rssi_dbm` | integer | Wi-Fi received signal strength in dBm; values nearer zero are stronger. |
 | `metrics.uptime_s` | integer | Monotonically increasing seconds since the device process started. |
 
+`temperature_c`, `rssi_dbm`, and `uptime_s` are required in version 1.
+`battery_pct`, `humidity_pct`, and `pressure_hpa` are first-class optional
+measurements. Devices report the measurements they actually support and omit
+unavailable optional measurements instead of publishing fabricated values. The
+API represents an omitted first-class measurement as `null` in REST and
+WebSocket responses.
+
 Metrics stay under the `metrics` object so compatible sensors can be added
-without mixing measurements with message metadata.
+without mixing measurements with message metadata. Additional numeric or
+structured measurements remain accepted and are stored in `additional_metrics`;
+version 1 does not define a dynamic metric-definition system.
 
 Telemetry uses QoS 0 and is not retained. It is frequent, and a later reading
 supersedes a missed individual reading, so broker acknowledgement and retry are
@@ -131,6 +143,6 @@ acknowledgements for commands already in a terminal state.
 ## Device time and server time
 
 `sent_at` records when the device says it produced a reading. Device clocks may
-be wrong. The future backend will add its own server-side `received_at` timestamp
-and use server time for last-seen and lifecycle decisions rather than trusting
-the device clock.
+be wrong. FastAPI adds its own server-side `received_at` timestamp and uses
+server time for last-seen and lifecycle decisions rather than trusting the
+device clock.

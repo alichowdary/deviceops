@@ -21,7 +21,9 @@ export interface Telemetry {
   sent_at: string;
   received_at: string;
   temperature_c: number;
-  battery_pct: number;
+  battery_pct: number | null;
+  humidity_pct: number | null;
+  pressure_hpa: number | null;
   rssi_dbm: number;
   uptime_s: number;
   additional_metrics: Record<string, unknown> | null;

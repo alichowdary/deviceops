@@ -13,7 +13,12 @@ import {
 import { formatChartTime, formatExactTime } from "@/lib/format";
 import type { Telemetry } from "@/lib/types";
 
-type NumericTelemetryKey = "temperature_c" | "battery_pct" | "rssi_dbm";
+type NumericTelemetryKey =
+  | "temperature_c"
+  | "battery_pct"
+  | "humidity_pct"
+  | "pressure_hpa"
+  | "rssi_dbm";
 
 export function TelemetryChart({
   data,

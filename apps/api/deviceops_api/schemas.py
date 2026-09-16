@@ -15,7 +15,13 @@ class TelemetryMetrics(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     temperature_c: float = Field(allow_inf_nan=False)
-    battery_pct: float = Field(ge=0, le=100, allow_inf_nan=False)
+    battery_pct: float | None = Field(
+        default=None, ge=0, le=100, allow_inf_nan=False
+    )
+    humidity_pct: float | None = Field(
+        default=None, ge=0, le=100, allow_inf_nan=False
+    )
+    pressure_hpa: float | None = Field(default=None, allow_inf_nan=False)
     rssi_dbm: int
     uptime_s: int = Field(ge=0)
 
@@ -55,7 +61,9 @@ class TelemetryRead(BaseModel):
     sent_at: datetime
     received_at: datetime
     temperature_c: float
-    battery_pct: float
+    battery_pct: float | None
+    humidity_pct: float | None
+    pressure_hpa: float | None
     rssi_dbm: int
     uptime_s: int
     additional_metrics: dict[str, Any] | None

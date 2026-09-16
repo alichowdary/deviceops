@@ -34,6 +34,10 @@ function isCommandType(value: unknown): value is CommandType {
   );
 }
 
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || typeof value === "number";
+}
+
 function parseEvent(rawMessage: string): DeviceOpsEvent | null {
   let event: unknown;
   try {
@@ -75,7 +79,9 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
     typeof event.data.sequence === "number" &&
     typeof event.data.sent_at === "string" &&
     typeof event.data.temperature_c === "number" &&
-    typeof event.data.battery_pct === "number" &&
+    isNullableNumber(event.data.battery_pct) &&
+    isNullableNumber(event.data.humidity_pct) &&
+    isNullableNumber(event.data.pressure_hpa) &&
     typeof event.data.rssi_dbm === "number" &&
     typeof event.data.uptime_s === "number"
   ) {

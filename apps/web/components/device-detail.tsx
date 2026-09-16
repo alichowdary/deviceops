@@ -4,6 +4,8 @@ import {
   BatteryMedium,
   ChevronRight,
   Clock3,
+  Droplets,
+  Gauge,
   Radio,
   Thermometer,
 } from "lucide-react";
@@ -236,6 +238,9 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   const commands = state.commands ?? [];
   if (!device) return null;
   const latest = telemetry.at(-1);
+  const hasBattery = telemetry.some((sample) => sample.battery_pct !== null);
+  const hasHumidity = telemetry.some((sample) => sample.humidity_pct !== null);
+  const hasPressure = telemetry.some((sample) => sample.pressure_hpa !== null);
 
   return (
     <>
@@ -298,12 +303,30 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               unit="°C"
               value={latest.temperature_c.toFixed(1)}
             />
-            <MetricValue
-              icon={BatteryMedium}
-              label="Battery"
-              unit="%"
-              value={latest.battery_pct.toFixed(1)}
-            />
+            {latest.battery_pct !== null ? (
+              <MetricValue
+                icon={BatteryMedium}
+                label="Battery"
+                unit="%"
+                value={latest.battery_pct.toFixed(1)}
+              />
+            ) : null}
+            {latest.humidity_pct !== null ? (
+              <MetricValue
+                icon={Droplets}
+                label="Humidity"
+                unit="%"
+                value={latest.humidity_pct.toFixed(1)}
+              />
+            ) : null}
+            {latest.pressure_hpa !== null ? (
+              <MetricValue
+                icon={Gauge}
+                label="Pressure"
+                unit="hPa"
+                value={latest.pressure_hpa.toFixed(1)}
+              />
+            ) : null}
             <MetricValue
               icon={Radio}
               label="RSSI"
@@ -325,14 +348,35 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
               label="Temperature"
               unit="°C"
             />
-            <TelemetryChart
-              color="#4dcb8a"
-              data={telemetry}
-              dataKey="battery_pct"
-              domain={[0, 100]}
-              label="Battery"
-              unit="%"
-            />
+            {hasBattery ? (
+              <TelemetryChart
+                color="#4dcb8a"
+                data={telemetry}
+                dataKey="battery_pct"
+                domain={[0, 100]}
+                label="Battery"
+                unit="%"
+              />
+            ) : null}
+            {hasHumidity ? (
+              <TelemetryChart
+                color="#53c7c1"
+                data={telemetry}
+                dataKey="humidity_pct"
+                domain={[0, 100]}
+                label="Humidity"
+                unit="%"
+              />
+            ) : null}
+            {hasPressure ? (
+              <TelemetryChart
+                color="#e1ad62"
+                data={telemetry}
+                dataKey="pressure_hpa"
+                label="Pressure"
+                unit="hPa"
+              />
+            ) : null}
             <TelemetryChart
               color="#c295e8"
               data={telemetry}

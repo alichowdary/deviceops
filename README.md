@@ -75,8 +75,9 @@ The first start downloads the official
 `2.1.2-alpine` so the chosen version is explicit. Logs should show the configuration
 loading, a listening socket on port `1883`, and Mosquitto running.
 
-The broker is available to this computer at `127.0.0.1:1883`. Compose maps the
-host's loopback port to port `1883` inside the container. It mounts
+The broker is available to this computer at `127.0.0.1:1883`. Compose publishes
+port `1883` on all host interfaces so a physical device on the local network can
+reach it. It mounts
 `infra/mosquitto/mosquitto.conf` read-only. Compose creates its default network;
 we define no custom networks or data volumes, and broker persistence is disabled.
 The official image itself creates anonymous volumes at `/mosquitto/data` and
@@ -84,10 +85,10 @@ The official image itself creates anonymous volumes at `/mosquitto/data` and
 
 **Local development only:** anonymous MQTT access is intentionally insecure.
 Clients that can reach the broker can publish and subscribe without credentials,
-and traffic is unencrypted. The host port is bound to loopback, not the LAN.
-Anonymous access will be replaced with authenticated device access in a later
-milestone. Do not use this configuration in production. There is no MQTT
-WebSocket listener.
+and traffic is unencrypted. The broker may be reachable from the LAN when the
+host firewall permits it. Anonymous access will be replaced with authenticated
+device access in a later milestone. Do not use this configuration in production.
+There is no MQTT WebSocket listener.
 
 ## Manual MQTT smoke test
 
@@ -159,6 +160,8 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 - **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
   clients to connect to the broker.
 
-Milestone 5 stops at the three explicit simulator commands and their persisted
-acknowledgements. Authentication, alerts, ESP32 firmware, OTA updates, and cloud
-infrastructure remain future work.
+Milestone 6 adds nullable battery, humidity, and pressure telemetry so
+battery-powered simulators and battery-free sensor devices can share the same
+ingestion and console paths. ESP32 firmware, automatic capability discovery,
+authentication, alerts, OTA updates, and cloud infrastructure remain outside
+this repository milestone.
