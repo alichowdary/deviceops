@@ -21,9 +21,77 @@ underscores, and hyphens; they must not contain `/`, `+`, or `#`.
 Commands travel from FastAPI to a device. Acknowledgements travel from the
 device back to FastAPI. Browsers never connect to MQTT.
 
+## Authenticated envelope
+
+Every MQTT payload is a UTF-8 JSON envelope. The `body` string contains the exact
+existing payload described in the sections below:
+
+```json
+{
+  "auth_version": 1,
+  "session_id": "0123456789abcdef0123456789abcdef",
+  "body": "<exact original MQTT payload as a UTF-8 string>",
+  "signature": "<64 lowercase hexadecimal HMAC-SHA256 characters>"
+}
+```
+
+The signing key is the raw SHA-256 digest of the device secret. Device-to-server
+messages use direction `d2s`; server-to-device commands use `s2d`. The signature
+is lowercase hexadecimal HMAC-SHA256 over this exact UTF-8 string:
+
+```text
+deviceops-auth-v1\n<direction>\n<topic>\n<session_id>\n<body_sha256_hex>
+```
+
+`topic` is the exact full MQTT topic, and `body_sha256_hex` is the lowercase
+SHA-256 digest of the exact UTF-8 bytes of `body`. The device secret itself is
+never sent over MQTT.
+
+Each device process or boot uses a fresh, random 16-byte session ID encoded as 32
+lowercase hexadecimal characters. A valid signed `online` message establishes
+the backend's current session. Telemetry, acknowledgements, and `offline` are
+accepted only for that session. Commands are signed for that same current
+session. This prevents a normally delayed Last Will from an older session from
+overwriting a newer online state. The Python simulator keeps one session ID for
+its process lifetime, including automatic reconnects, and creates a new one when
+restarted.
+
+Version 1 has no general anti-replay mechanism. A captured authenticated
+telemetry, acknowledgement, or status envelope can be replayed. In particular,
+replaying a previously valid signed `online` envelope can re-establish that older
+session. Session matching still handles the common stale-Last-Will ordering case
+after a newer session has been established. Stronger replay protection is
+intentionally deferred.
+
+### Interoperability test vector
+
+The following fixed values are for implementation testing only. The secret must
+never be used by a real device.
+
+| Input | Exact value |
+| --- | --- |
+| Device secret | `deviceops-test-only-secret` |
+| Session ID | `0123456789abcdef0123456789abcdef` |
+| Direction | `d2s` |
+| Topic | `deviceops/v1/devices/test-device/telemetry` |
+| Body | `{"message":"hello-deviceops"}` |
+| Derived signing key, SHA-256 hex | `d69100dd57af5ccdfb56800af1ca5bfa04b688994a8cebbfda34765c0f42d35a` |
+| Body SHA-256 hex | `532c3453e5647433abfbf93581127aa79b85426b5a8e269dbda1822a37802f42` |
+| HMAC-SHA256 signature | `65c72f03a11bb3fb66452ba74ad9ecf142e7da2a3c49449cd76f47530207c798` |
+
+The exact UTF-8 HMAC input is:
+
+```text
+deviceops-auth-v1
+d2s
+deviceops/v1/devices/test-device/telemetry
+0123456789abcdef0123456789abcdef
+532c3453e5647433abfbf93581127aa79b85426b5a8e269dbda1822a37802f42
+```
+
 ## Telemetry
 
-Telemetry is a UTF-8 JSON object:
+The telemetry envelope body is this existing JSON object serialized as a string:
 
 ```json
 {
@@ -72,14 +140,16 @@ not required for every sample.
 
 ## Presence/status
 
-The status payload is the UTF-8 text `online` or `offline`. Status uses QoS 1 and
-is retained so a new subscriber immediately receives the device's latest known
-state rather than waiting for another transition.
+The status envelope body is exactly the text `online` or `offline`. The envelope
+uses QoS 1 and is retained so a new subscriber immediately receives the device's
+latest known state rather than waiting for another transition.
 
-Before connecting, a device configures a retained, QoS 1 Last Will of `offline`
-on its status topic. After connecting, it publishes retained `online`. On a clean
-shutdown, it explicitly publishes retained `offline` before disconnecting. If
-the connection disappears unexpectedly, Mosquitto publishes the Last Will.
+Before connecting, a device configures a retained, QoS 1 authenticated envelope
+whose body is `offline` on its status topic. After connecting, it publishes a
+retained authenticated `online` envelope using the same session ID. On a clean
+shutdown, it explicitly publishes authenticated `offline` before disconnecting.
+If the connection disappears unexpectedly, Mosquitto publishes the signed Last
+Will.
 
 The retained status is useful connection evidence, but it is not a complete
 lifecycle policy. Application-level offline timeouts belong to a later backend
@@ -87,7 +157,8 @@ milestone.
 
 ## Commands
 
-Commands are UTF-8 JSON objects published with QoS 1 and `retain=false`:
+The command envelope body is this existing JSON object serialized as a string.
+The outer envelope is published with QoS 1 and `retain=false`:
 
 ```json
 {
@@ -115,8 +186,9 @@ device is subscribed, but duplicate delivery remains possible.
 
 ## Command acknowledgements
 
-After validating and executing a command, the device publishes a UTF-8 JSON
-acknowledgement with QoS 1 and `retain=false`:
+After validating and executing a command, the device publishes an authenticated
+envelope whose body is this existing JSON acknowledgement. It uses QoS 1 and
+`retain=false`:
 
 ```json
 {

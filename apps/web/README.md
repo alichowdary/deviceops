@@ -41,8 +41,11 @@ NEXT_PUBLIC_DEVICEOPS_WS_URL=ws://127.0.0.1:8000/ws
 npm run dev
 ```
 
-Open <http://localhost:3000>. The fleet page loads persisted devices and API
-health. Select a device row to open `/devices/{deviceId}`, where the latest
+Open <http://localhost:3000>. Register or sign in with a DeviceOps account. The
+access token is kept in memory and in browser `sessionStorage` for the current
+tab; logout, an authenticated REST `401`, or a rejected WebSocket authentication
+clears it. The fleet page then loads that user's devices and API health. Select a
+device row to open `/devices/{deviceId}`, where the latest
 measurements, 100-sample telemetry charts, and recent samples are shown. New
 events update fleet status, last-seen timestamps, current measurements, charts,
 and the recent-samples table without polling or a page reload. Device detail also
@@ -53,6 +56,11 @@ charts, and recent-sample columns appear only when the device reports that
 optional measurement, so battery-powered simulators and battery-free sensor
 devices share the same detail page without empty charts.
 
+Authenticated users can select **Add device** from Fleet to generate a device ID
+and one-time device secret. Copy both values before closing the credential
+dialog; the plaintext secret cannot be retrieved again. A registered device that
+has not connected yet appears as `Unknown` with `Never` for its seen timestamps.
+
 If Node.js is not installed on Windows, run from the repository root with the
 official Node image instead. Dependencies remain in a temporary container
 volume and are removed when the container stops:
@@ -62,10 +70,13 @@ docker run --rm -it -p 127.0.0.1:3000:3000 -v "${PWD}:/workspace" -v /workspace/
 ```
 
 The small `Live`, `Connecting`, or `Reconnecting` label shows WebSocket state.
-After a disconnect, the client retries with exponential backoff capped at ten
-seconds. When it reconnects, it reloads the REST snapshot to fill the gap before
-continuing with WebSocket deltas. Refresh remains available for an explicit
-snapshot reload. The browser never accesses MQTT directly.
+Each connection sends the current access token in the initial WebSocket message
+and becomes live only after FastAPI replies with the authenticated control
+message. After an ordinary disconnect, the client retries with exponential
+backoff capped at ten seconds. Once the new connection authenticates, it reloads
+the REST snapshot to fill the gap before continuing with WebSocket deltas.
+Refresh remains available for an explicit snapshot reload. The browser never
+accesses MQTT directly.
 
 ## Run the full local demo
 
@@ -87,12 +98,15 @@ python -m alembic upgrade head
 python -m uvicorn deviceops_api.main:app --host 127.0.0.1 --port 8000
 ```
 
-Start one or more simulators:
+Register a device through the web console, then start one or more simulators with
+their generated IDs and one-time secrets:
 
 ```powershell
 cd simulator
 .\.venv\Scripts\Activate.ps1
-python -m device_simulator --device-id sim-001 --interval 5
+$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
+python -m device_simulator --device-id <registered-device-id> --interval 5
+Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
 Start the frontend:

@@ -11,13 +11,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_database_session
-from ..models import Device, DeviceCommand
+from ..models import DeviceCommand, User
 from ..mqtt import MqttPublishError, mqtt_ingestor
+from ..ownership import get_owned_device_or_404
 from ..schemas import CommandCreate, CommandRead
+from ..security import get_current_user
 
 
 router = APIRouter(prefix="/api/devices", tags=["commands"])
 DatabaseSession = Annotated[Session, Depends(get_database_session)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 @router.post(
@@ -26,10 +29,12 @@ DatabaseSession = Annotated[Session, Depends(get_database_session)]
     status_code=status.HTTP_201_CREATED,
 )
 def create_device_command(
-    device_id: str, command_request: CommandCreate, session: DatabaseSession
+    device_id: str,
+    command_request: CommandCreate,
+    session: DatabaseSession,
+    current_user: CurrentUser,
 ) -> DeviceCommand:
-    if session.get(Device, device_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    get_owned_device_or_404(session, device_id, current_user.id)
 
     issued_at = datetime.now(timezone.utc)
     command = DeviceCommand(
@@ -61,10 +66,10 @@ def create_device_command(
 def list_device_commands(
     device_id: str,
     session: DatabaseSession,
+    current_user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[DeviceCommand]:
-    if session.get(Device, device_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    get_owned_device_or_404(session, device_id, current_user.id)
 
     return list(
         session.scalars(

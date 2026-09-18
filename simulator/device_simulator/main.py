@@ -6,7 +6,9 @@ import argparse
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 import json
+import os
 import re
+import signal
 import sys
 import threading
 import time
@@ -14,11 +16,17 @@ from typing import Any
 
 import paho.mqtt.client as mqtt
 
+from .mqtt_auth import (
+    MqttAuthenticationError,
+    create_authenticated_envelope,
+    derive_signing_key,
+    generate_session_id,
+    parse_authenticated_envelope,
+    verify_authenticated_envelope,
+)
 from .telemetry import TelemetryGenerator
 
 
-BROKER_HOST = "localhost"
-BROKER_PORT = 1883
 CONNECT_TIMEOUT_S = 10
 RECENT_COMMAND_LIMIT = 100
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -34,6 +42,16 @@ def positive_interval(value: str) -> float:
     return interval
 
 
+def broker_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("broker port must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("broker port must be from 1 to 65535")
+    return port
+
+
 def device_id(value: str) -> str:
     if not DEVICE_ID_PATTERN.fullmatch(value):
         raise argparse.ArgumentTypeError(
@@ -43,8 +61,26 @@ def device_id(value: str) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Publish simulated DeviceOps telemetry")
-    parser.add_argument("--device-id", type=device_id, default="sim-001")
+    parser = argparse.ArgumentParser(
+        description="Publish simulated DeviceOps telemetry"
+    )
+    parser.add_argument(
+        "--device-id",
+        type=device_id,
+        required=True,
+        help="registered DeviceOps device ID",
+    )
+    parser.add_argument(
+        "--broker-host",
+        default="localhost",
+        help="MQTT broker host (default: localhost)",
+    )
+    parser.add_argument(
+        "--broker-port",
+        type=broker_port,
+        default=1883,
+        help="MQTT broker TCP port (default: 1883)",
+    )
     parser.add_argument(
         "--interval",
         type=positive_interval,
@@ -71,7 +107,13 @@ def _validate_utc_timestamp(value: object, field_name: str) -> None:
         raise ValueError(f"{field_name} must include a UTC offset")
 
 
-def run(device_id_value: str, interval: float) -> int:
+def run(
+    device_id_value: str,
+    interval: float,
+    broker_host: str,
+    broker_port_value: int,
+    device_secret: str,
+) -> int:
     telemetry_topic = f"deviceops/v1/devices/{device_id_value}/telemetry"
     status_topic = f"deviceops/v1/devices/{device_id_value}/status"
     command_topic = f"deviceops/v1/devices/{device_id_value}/commands"
@@ -87,18 +129,34 @@ def run(device_id_value: str, interval: float) -> int:
     led_on = False
     last_metrics: dict[str, Any] | None = None
     recent_acknowledgements: OrderedDict[str, str] = OrderedDict()
+    signing_key = derive_signing_key(device_secret)
+    session_id = generate_session_id()
+    offline_envelope = create_authenticated_envelope(
+        body="offline",
+        signing_key=signing_key,
+        direction="d2s",
+        topic=status_topic,
+        session_id=session_id,
+    )
+    online_envelope = create_authenticated_envelope(
+        body="online",
+        signing_key=signing_key,
+        direction="d2s",
+        topic=status_topic,
+        session_id=session_id,
+    )
 
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=device_id_value,
         protocol=mqtt.MQTTv311,
     )
-    client.will_set(status_topic, payload="offline", qos=1, retain=True)
+    client.will_set(status_topic, payload=offline_envelope, qos=1, retain=True)
 
     def publish_acknowledgement(
         command_id: str, status: str, result: dict[str, Any]
     ) -> None:
-        payload = json.dumps(
+        body = json.dumps(
             {
                 "protocol_version": 1,
                 "command_id": command_id,
@@ -108,6 +166,13 @@ def run(device_id_value: str, interval: float) -> int:
                 "result": result,
             },
             separators=(",", ":"),
+        )
+        payload = create_authenticated_envelope(
+            body=body,
+            signing_key=signing_key,
+            direction="d2s",
+            topic=acknowledgement_topic,
+            session_id=session_id,
         )
         with state_changed:
             recent_acknowledgements[command_id] = payload
@@ -126,22 +191,36 @@ def run(device_id_value: str, interval: float) -> int:
                 flush=True,
             )
 
-    def process_command(raw_payload: bytes) -> None:
+    def process_command(body: str) -> None:
         nonlocal led_on, reporting_interval
 
         try:
-            decoded = json.loads(raw_payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            print(f"Rejected malformed command JSON: {exc}", file=sys.stderr, flush=True)
+            decoded = json.loads(body)
+        except (json.JSONDecodeError, TypeError) as exc:
+            print(
+                f"Rejected malformed command JSON: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
             return
 
         if not isinstance(decoded, dict):
-            print("Rejected command: payload must be an object", file=sys.stderr, flush=True)
+            print(
+                "Rejected command: payload must be an object",
+                file=sys.stderr,
+                flush=True,
+            )
             return
 
         command_id = decoded.get("command_id")
-        if not isinstance(command_id, str) or not COMMAND_ID_PATTERN.fullmatch(command_id):
-            print("Rejected command: command_id must be a UUID v4", file=sys.stderr, flush=True)
+        if not isinstance(command_id, str) or not COMMAND_ID_PATTERN.fullmatch(
+            command_id
+        ):
+            print(
+                "Rejected command: command_id must be a UUID v4",
+                file=sys.stderr,
+                flush=True,
+            )
             return
 
         with state_changed:
@@ -154,7 +233,8 @@ def run(device_id_value: str, interval: float) -> int:
                 retain=False,
             )
             print(
-                f"command {command_id}: duplicate delivery; resent cached acknowledgement",
+                f"command {command_id}: duplicate delivery; "
+                "resent cached acknowledgement",
                 flush=True,
             )
             return
@@ -173,7 +253,9 @@ def run(device_id_value: str, interval: float) -> int:
                 raise ValueError("arguments must be an object")
 
             if command_type == "set_led":
-                if set(arguments) != {"on"} or not isinstance(arguments.get("on"), bool):
+                if set(arguments) != {"on"} or not isinstance(
+                    arguments.get("on"), bool
+                ):
                     raise ValueError("set_led requires exactly {'on': boolean}")
                 with state_changed:
                     led_on = arguments["on"]
@@ -240,7 +322,7 @@ def run(device_id_value: str, interval: float) -> int:
                     f"command subscription failed: {mqtt.error_string(result)}"
                 )
             else:
-                connected_client.publish(status_topic, "online", qos=1, retain=True)
+                subscribed.clear()
         connected.set()
 
     def on_subscribe(
@@ -252,6 +334,17 @@ def run(device_id_value: str, interval: float) -> int:
     ) -> None:
         if any(reason_code.is_failure for reason_code in reason_codes):
             connection_error.append("broker rejected command subscription")
+        else:
+            online = _client.publish(
+                status_topic,
+                online_envelope,
+                qos=1,
+                retain=True,
+            )
+            if online.rc != mqtt.MQTT_ERR_SUCCESS:
+                connection_error.append(
+                    f"online status publish failed: {mqtt.error_string(online.rc)}"
+                )
         subscribed.set()
 
     def on_message(
@@ -260,7 +353,41 @@ def run(device_id_value: str, interval: float) -> int:
         message: mqtt.MQTTMessage,
     ) -> None:
         try:
-            process_command(message.payload)
+            envelope = parse_authenticated_envelope(message.payload)
+        except MqttAuthenticationError:
+            print(
+                "Rejected command: invalid authentication envelope",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
+        if envelope.session_id != session_id:
+            print(
+                "Rejected command: MQTT session does not match this process",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        try:
+            authenticated = verify_authenticated_envelope(
+                envelope,
+                signing_key,
+                direction="s2d",
+                topic=command_topic,
+            )
+        except MqttAuthenticationError:
+            authenticated = False
+        if not authenticated:
+            print(
+                "Rejected command: invalid signature",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
+        try:
+            process_command(envelope.body)
         except Exception as exc:
             print(
                 f"Unexpected command processing error: {exc}",
@@ -273,14 +400,15 @@ def run(device_id_value: str, interval: float) -> int:
     client.on_message = on_message
 
     print(
-        f"Connecting {device_id_value} to mqtt://{BROKER_HOST}:{BROKER_PORT} ...",
+        f"Connecting {device_id_value} to mqtt://{broker_host}:{broker_port_value} ...",
         flush=True,
     )
     try:
-        client.connect(BROKER_HOST, BROKER_PORT, keepalive=30)
+        client.connect(broker_host, broker_port_value, keepalive=30)
     except OSError as exc:
         print(
-            f"Could not connect to MQTT broker at {BROKER_HOST}:{BROKER_PORT}: {exc}",
+            f"Could not connect to MQTT broker at "
+            f"{broker_host}:{broker_port_value}: {exc}",
             file=sys.stderr,
         )
         print("Start it with: docker compose up -d", file=sys.stderr)
@@ -291,7 +419,7 @@ def run(device_id_value: str, interval: float) -> int:
         client.loop_stop()
         client.disconnect()
         print(
-            f"Timed out connecting to MQTT broker at {BROKER_HOST}:{BROKER_PORT}",
+            f"Timed out connecting to MQTT broker at {broker_host}:{broker_port_value}",
             file=sys.stderr,
         )
         return 1
@@ -318,9 +446,16 @@ def run(device_id_value: str, interval: float) -> int:
             with state_changed:
                 last_metrics = dict(payload["metrics"])
             encoded_payload = json.dumps(payload, separators=(",", ":"))
+            authenticated_payload = create_authenticated_envelope(
+                body=encoded_payload,
+                signing_key=signing_key,
+                direction="d2s",
+                topic=telemetry_topic,
+                session_id=session_id,
+            )
             result = client.publish(
                 telemetry_topic,
-                encoded_payload,
+                authenticated_payload,
                 qos=0,
                 retain=False,
             )
@@ -345,7 +480,7 @@ def run(device_id_value: str, interval: float) -> int:
         print(str(exc), file=sys.stderr)
         return_code = 1
 
-    offline = client.publish(status_topic, "offline", qos=1, retain=True)
+    offline = client.publish(status_topic, offline_envelope, qos=1, retain=True)
     try:
         offline.wait_for_publish(timeout=5)
         if not offline.is_published():
@@ -362,4 +497,21 @@ def run(device_id_value: str, interval: float) -> int:
 
 def main() -> None:
     args = parse_args()
-    raise SystemExit(run(args.device_id, args.interval))
+    device_secret = os.getenv("DEVICEOPS_DEVICE_SECRET")
+    if device_secret is None or not device_secret.strip():
+        print(
+            "DEVICEOPS_DEVICE_SECRET must be set to the registered device secret",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
+    raise SystemExit(
+        run(
+            args.device_id,
+            args.interval,
+            args.broker_host,
+            args.broker_port,
+            device_secret,
+        )
+    )

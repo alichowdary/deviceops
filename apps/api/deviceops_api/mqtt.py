@@ -10,10 +10,19 @@ import re
 import paho.mqtt.client as mqtt
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import SessionLocal
 from .models import Device, DeviceCommand, Telemetry
+from .mqtt_auth import (
+    AuthenticatedMqttEnvelope,
+    MqttAuthenticationError,
+    create_authenticated_envelope,
+    parse_authenticated_envelope,
+    signing_key_from_stored_hash,
+    verify_authenticated_envelope,
+)
 from .realtime import realtime_hub
 from .schemas import CommandAckPayload, TelemetryPayload
 
@@ -86,11 +95,8 @@ class MqttIngestor:
         logger.info("MQTT client stopped")
 
     def publish_command(self, command: DeviceCommand) -> None:
-        if not self._connected:
-            raise MqttPublishError("MQTT is not connected")
-
         topic = f"deviceops/v1/devices/{command.device_id}/commands"
-        payload = json.dumps(
+        body = json.dumps(
             {
                 "protocol_version": 1,
                 "command_id": command.command_id,
@@ -101,6 +107,38 @@ class MqttIngestor:
             },
             separators=(",", ":"),
         )
+
+        try:
+            with SessionLocal() as session:
+                device = session.get(Device, command.device_id)
+                if device is None:
+                    raise MqttPublishError("Command device does not exist")
+                if device.device_secret_hash is None:
+                    raise MqttPublishError("Command device has no MQTT credential")
+                if device.mqtt_session_id is None:
+                    raise MqttPublishError("Command device has no active MQTT session")
+                signing_key = signing_key_from_stored_hash(
+                    device.device_secret_hash
+                )
+                mqtt_session_id = device.mqtt_session_id
+        except SQLAlchemyError as exc:
+            raise MqttPublishError("Could not load command device") from exc
+        except MqttAuthenticationError as exc:
+            raise MqttPublishError("Command device credential is invalid") from exc
+
+        if not self._connected:
+            raise MqttPublishError("MQTT is not connected")
+
+        try:
+            payload = create_authenticated_envelope(
+                body=body,
+                signing_key=signing_key,
+                direction="s2d",
+                topic=topic,
+                session_id=mqtt_session_id,
+            )
+        except MqttAuthenticationError as exc:
+            raise MqttPublishError("Command device MQTT session is invalid") from exc
         publish = self._client.publish(topic, payload, qos=1, retain=False)
         if publish.rc != mqtt.MQTT_ERR_SUCCESS:
             raise MqttPublishError(mqtt.error_string(publish.rc))
@@ -194,52 +232,117 @@ class MqttIngestor:
             return
 
         topic_device_id, message_kind = topic_match.groups()
+        try:
+            envelope = parse_authenticated_envelope(payload)
+        except MqttAuthenticationError:
+            logger.warning(
+                "Rejected MQTT message with invalid authentication envelope: device=%s",
+                topic_device_id,
+            )
+            return
+
         received_at = datetime.now(timezone.utc)
 
         if message_kind == "telemetry":
-            self._process_telemetry(topic_device_id, payload, received_at)
+            self._process_telemetry(topic_device_id, topic, envelope, received_at)
         elif message_kind == "status":
-            self._process_status(topic_device_id, payload, received_at)
+            self._process_status(topic_device_id, topic, envelope, received_at)
         else:
-            self._process_command_ack(topic_device_id, payload, received_at)
+            self._process_command_ack(topic_device_id, topic, envelope, received_at)
+
+    def _authenticate_device_envelope(
+        self,
+        session: Session,
+        topic_device_id: str,
+        topic: str,
+        envelope: AuthenticatedMqttEnvelope,
+    ) -> Device | None:
+        device = session.get(Device, topic_device_id)
+        if device is None:
+            logger.warning(
+                "Rejected authenticated MQTT message for unknown device=%s",
+                topic_device_id,
+            )
+            return None
+        if device.owner_id is None:
+            logger.warning(
+                "Rejected authenticated MQTT message for unowned device=%s",
+                topic_device_id,
+            )
+            return None
+        if device.device_secret_hash is None:
+            logger.warning(
+                "Rejected authenticated MQTT message without credential: device=%s",
+                topic_device_id,
+            )
+            return None
+
+        try:
+            signing_key = signing_key_from_stored_hash(device.device_secret_hash)
+        except MqttAuthenticationError:
+            logger.warning(
+                "Rejected authenticated MQTT message with invalid stored credential: device=%s",
+                topic_device_id,
+            )
+            return None
+        if not verify_authenticated_envelope(
+            envelope,
+            signing_key,
+            direction="d2s",
+            topic=topic,
+        ):
+            logger.warning(
+                "Rejected MQTT message with invalid signature: device=%s",
+                topic_device_id,
+            )
+            return None
+        return device
 
     def _process_telemetry(
         self,
         topic_device_id: str,
-        raw_payload: bytes,
+        topic: str,
+        envelope: AuthenticatedMqttEnvelope,
         received_at: datetime,
     ) -> None:
         try:
-            payload = TelemetryPayload.model_validate_json(raw_payload)
-        except ValidationError as exc:
-            logger.warning(
-                "Rejected malformed telemetry for device %s: %s",
-                topic_device_id,
-                exc.errors(include_url=False, include_input=False),
-            )
-            return
-
-        if payload.device_id != topic_device_id:
-            logger.warning(
-                "Rejected telemetry device ID mismatch: topic=%s payload=%s",
-                topic_device_id,
-                payload.device_id,
-            )
-            return
-
-        try:
             with SessionLocal.begin() as session:
-                device = session.get(Device, topic_device_id)
+                device = self._authenticate_device_envelope(
+                    session,
+                    topic_device_id,
+                    topic,
+                    envelope,
+                )
                 if device is None:
-                    device = Device(
-                        device_id=topic_device_id,
-                        status="unknown",
-                        first_seen_at=received_at,
-                        last_seen_at=received_at,
+                    return
+                if device.mqtt_session_id != envelope.session_id:
+                    logger.warning(
+                        "Rejected telemetry with stale MQTT session: device=%s",
+                        topic_device_id,
                     )
-                    session.add(device)
-                else:
-                    device.last_seen_at = received_at
+                    return
+
+                try:
+                    payload = TelemetryPayload.model_validate_json(envelope.body)
+                except ValidationError as exc:
+                    logger.warning(
+                        "Rejected malformed telemetry for device %s: %s",
+                        topic_device_id,
+                        exc.errors(include_url=False, include_input=False),
+                    )
+                    return
+
+                if payload.device_id != topic_device_id:
+                    logger.warning(
+                        "Rejected telemetry device ID mismatch: topic=%s payload=%s",
+                        topic_device_id,
+                        payload.device_id,
+                    )
+                    return
+
+                if device.first_seen_at is None:
+                    device.first_seen_at = received_at
+                device.last_seen_at = received_at
 
                 additional_metrics = payload.metrics.model_extra or None
                 telemetry = Telemetry(
@@ -258,6 +361,7 @@ class MqttIngestor:
                 session.add(telemetry)
                 session.flush()
                 telemetry_id = telemetry.id
+                owner_id = device.owner_id
         except SQLAlchemyError:
             logger.exception("Database write failed for telemetry from %s", topic_device_id)
             return
@@ -269,6 +373,7 @@ class MqttIngestor:
             received_at.isoformat(),
         )
         realtime_hub.publish_from_thread(
+            owner_id,
             {
                 "type": "telemetry",
                 "device_id": topic_device_id,
@@ -291,35 +396,44 @@ class MqttIngestor:
     def _process_status(
         self,
         topic_device_id: str,
-        raw_payload: bytes,
+        topic: str,
+        envelope: AuthenticatedMqttEnvelope,
         received_at: datetime,
     ) -> None:
         try:
-            status = raw_payload.decode("utf-8")
-        except UnicodeDecodeError:
-            logger.warning("Rejected non-UTF-8 status for device %s", topic_device_id)
-            return
-
-        if status not in {"online", "offline"}:
-            logger.warning(
-                "Rejected invalid status for device %s: %r", topic_device_id, status
-            )
-            return
-
-        try:
             with SessionLocal.begin() as session:
-                device = session.get(Device, topic_device_id)
+                device = self._authenticate_device_envelope(
+                    session,
+                    topic_device_id,
+                    topic,
+                    envelope,
+                )
                 if device is None:
-                    device = Device(
-                        device_id=topic_device_id,
-                        status=status,
-                        first_seen_at=received_at,
-                        last_seen_at=received_at,
+                    return
+
+                status = envelope.body
+                if status not in {"online", "offline"}:
+                    logger.warning(
+                        "Rejected invalid status body: device=%s",
+                        topic_device_id,
                     )
-                    session.add(device)
+                    return
+
+                if status == "online":
+                    device.mqtt_session_id = envelope.session_id
+                    if device.first_seen_at is None:
+                        device.first_seen_at = received_at
                 else:
-                    device.status = status
-                    device.last_seen_at = received_at
+                    if device.mqtt_session_id != envelope.session_id:
+                        logger.warning(
+                            "Rejected stale offline status: device=%s",
+                            topic_device_id,
+                        )
+                        return
+
+                device.status = status
+                device.last_seen_at = received_at
+                owner_id = device.owner_id
         except SQLAlchemyError:
             logger.exception("Database write failed for status from %s", topic_device_id)
             return
@@ -331,6 +445,7 @@ class MqttIngestor:
             received_at.isoformat(),
         )
         realtime_hub.publish_from_thread(
+            owner_id,
             {
                 "type": "device_status",
                 "device_id": topic_device_id,
@@ -342,29 +457,47 @@ class MqttIngestor:
     def _process_command_ack(
         self,
         topic_device_id: str,
-        raw_payload: bytes,
+        topic: str,
+        envelope: AuthenticatedMqttEnvelope,
         received_at: datetime,
     ) -> None:
         try:
-            payload = CommandAckPayload.model_validate_json(raw_payload)
-        except ValidationError as exc:
-            logger.warning(
-                "Rejected malformed command acknowledgement for device %s: %s",
-                topic_device_id,
-                exc.errors(include_url=False, include_input=False),
-            )
-            return
-
-        if payload.device_id != topic_device_id:
-            logger.warning(
-                "Rejected command acknowledgement device ID mismatch: topic=%s payload=%s",
-                topic_device_id,
-                payload.device_id,
-            )
-            return
-
-        try:
             with SessionLocal.begin() as session:
+                device = self._authenticate_device_envelope(
+                    session,
+                    topic_device_id,
+                    topic,
+                    envelope,
+                )
+                if device is None:
+                    return
+                if device.mqtt_session_id != envelope.session_id:
+                    logger.warning(
+                        "Rejected command acknowledgement with stale MQTT session: device=%s",
+                        topic_device_id,
+                    )
+                    return
+
+                try:
+                    payload = CommandAckPayload.model_validate_json(envelope.body)
+                except ValidationError as exc:
+                    logger.warning(
+                        "Rejected malformed command acknowledgement for device %s: %s",
+                        topic_device_id,
+                        exc.errors(include_url=False, include_input=False),
+                    )
+                    return
+
+                if payload.device_id != topic_device_id:
+                    logger.warning(
+                        "Rejected command acknowledgement device ID mismatch: "
+                        "topic=%s payload=%s",
+                        topic_device_id,
+                        payload.device_id,
+                    )
+                    return
+
+                device.last_seen_at = received_at
                 command = session.get(DeviceCommand, payload.command_id)
                 if command is None:
                     logger.warning(
@@ -397,10 +530,11 @@ class MqttIngestor:
                 command_type = command.command_type
                 arguments = command.arguments
                 issued_at = command.issued_at
+                owner_id = device.owner_id
         except SQLAlchemyError:
             logger.exception(
-                "Database update failed for acknowledgement command_id=%s",
-                payload.command_id,
+                "Database update failed for command acknowledgement from device=%s",
+                topic_device_id,
             )
             return
 
@@ -411,6 +545,7 @@ class MqttIngestor:
             payload.status,
         )
         realtime_hub.publish_from_thread(
+            owner_id,
             {
                 "type": "command_update",
                 "device_id": topic_device_id,

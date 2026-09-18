@@ -1,9 +1,12 @@
 "use client";
 
-import { Activity, Bell, RadioTower } from "lucide-react";
+import { Activity, Bell, LoaderCircle, LogOut, RadioTower } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+
+import { useAuth } from "@/components/auth-provider";
+import { AuthScreen } from "@/components/auth-screen";
 
 const navItems = [
   { label: "Fleet", href: "/", icon: RadioTower, enabled: true },
@@ -13,6 +16,18 @@ const navItems = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { initialized, invalidateSession, user } = useAuth();
+
+  if (!initialized) {
+    return (
+      <div aria-live="polite" className="auth-screen auth-loading">
+        <LoaderCircle aria-hidden="true" className="icon-spin" size={17} />
+        Verifying session
+      </div>
+    );
+  }
+
+  if (!user) return <AuthScreen />;
 
   return (
     <div className="app-grid">
@@ -58,7 +73,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="sidebar-footer">
-          REST API · read only
+          REST + WebSocket
           <br />
           Protocol v1
         </div>
@@ -66,6 +81,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="content-shell">
         <header className="topbar">
+          <div className="session-controls">
+            <span className="session-email" title={user.email}>
+              {user.email}
+            </span>
+            <button
+              className="session-logout"
+              onClick={invalidateSession}
+              type="button"
+            >
+              <LogOut aria-hidden="true" size={13} />
+              Logout
+            </button>
+          </div>
           <span className="environment-label">
             <span className="environment-dot" />
             local development

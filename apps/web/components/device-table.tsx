@@ -51,11 +51,19 @@ export function DeviceTable({ devices }: { devices: Device[] }) {
                 <td><span className="mono table-primary">{device.device_id}</span></td>
                 <td title={formatExactTime(device.last_seen_at)}>
                   <span className="table-primary">{formatRelativeTime(device.last_seen_at)}</span>
-                  <span className="mono table-secondary">{formatExactTime(device.last_seen_at)}</span>
+                  {device.last_seen_at ? (
+                    <span className="mono table-secondary">
+                      {formatExactTime(device.last_seen_at)}
+                    </span>
+                  ) : null}
                 </td>
                 <td title={formatExactTime(device.first_seen_at)}>
                   <span className="table-primary">{formatRelativeTime(device.first_seen_at)}</span>
-                  <span className="mono table-secondary">{formatExactTime(device.first_seen_at)}</span>
+                  {device.first_seen_at ? (
+                    <span className="mono table-secondary">
+                      {formatExactTime(device.first_seen_at)}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="chevron-cell">
                   <ChevronRight aria-hidden="true" size={14} />

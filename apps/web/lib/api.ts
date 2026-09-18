@@ -13,14 +13,49 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+interface ApiRequestOptions {
+  signal?: AbortSignal;
+  token?: string;
+  onUnauthorized?: () => void;
+}
+
+function requestHeaders(token?: string, hasJsonBody = false): HeadersInit {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (hasJsonBody) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  let detail = `The API returned HTTP ${response.status}.`;
+  try {
+    const body = (await response.json()) as {
+      detail?: string | Array<{ msg?: string }>;
+    };
+    if (typeof body.detail === "string") detail = body.detail;
+    else if (Array.isArray(body.detail)) {
+      const messages = body.detail
+        .map((item) => item.msg)
+        .filter((message): message is string => Boolean(message));
+      if (messages.length > 0) detail = messages.join("; ");
+    }
+  } catch {
+    // The status code is sufficient when the response is not JSON.
+  }
+  return new ApiError(detail, response.status);
+}
+
+export async function apiGet<T>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       cache: "no-store",
-      headers: { Accept: "application/json" },
-      signal,
+      headers: requestHeaders(options.token),
+      signal: options.signal,
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -33,32 +68,32 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   }
 
   if (!response.ok) {
-    let detail = `The API returned HTTP ${response.status}.`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
-    } catch {
-      // The status code is sufficient when the response is not JSON.
-    }
-    throw new ApiError(detail, response.status);
+    const error = await responseError(response);
+    if (response.status === 401 && options.token) options.onUnauthorized?.();
+    throw error;
   }
 
   return (await response.json()) as T;
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
+      headers: requestHeaders(options.token, true),
       body: JSON.stringify(body),
+      signal: options.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     throw new ApiError(
       `Cannot reach the DeviceOps API at ${API_BASE_URL}.`,
       null,
@@ -66,22 +101,9 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   }
 
   if (!response.ok) {
-    let detail = `The API returned HTTP ${response.status}.`;
-    try {
-      const responseBody = (await response.json()) as {
-        detail?: string | Array<{ msg?: string }>;
-      };
-      if (typeof responseBody.detail === "string") detail = responseBody.detail;
-      else if (Array.isArray(responseBody.detail)) {
-        detail = responseBody.detail
-          .map((item) => item.msg)
-          .filter(Boolean)
-          .join("; ");
-      }
-    } catch {
-      // The status code is sufficient when the response is not JSON.
-    }
-    throw new ApiError(detail, response.status);
+    const error = await responseError(response);
+    if (response.status === 401 && options.token) options.onUnauthorized?.();
+    throw error;
   }
 
   return (await response.json()) as T;

@@ -16,9 +16,9 @@ LiveEvent = dict[str, Any]
 
 class RealtimeHub:
     def __init__(self) -> None:
-        self._connections: set[WebSocket] = set()
+        self._connections: dict[WebSocket, int] = {}
         self._event_loop: asyncio.AbstractEventLoop | None = None
-        self._queue: asyncio.Queue[LiveEvent] | None = None
+        self._queue: asyncio.Queue[tuple[int, LiveEvent]] | None = None
         self._broadcast_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -52,29 +52,32 @@ class RealtimeHub:
         self._queue = None
         logger.info("WebSocket event hub stopped")
 
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        self._connections.add(websocket)
+    async def connect(self, websocket: WebSocket, user_id: int) -> None:
+        """Register an already accepted and authenticated connection."""
+        self._connections[websocket] = user_id
         logger.info("WebSocket client connected; clients=%s", len(self._connections))
 
     def disconnect(self, websocket: WebSocket) -> None:
-        self._connections.discard(websocket)
+        self._connections.pop(websocket, None)
         logger.info("WebSocket client disconnected; clients=%s", len(self._connections))
 
-    def publish_from_thread(self, event: LiveEvent) -> None:
+    def publish_from_thread(self, owner_id: int | None, event: LiveEvent) -> None:
         """Schedule a committed MQTT event from Paho's thread onto asyncio."""
+        if type(owner_id) is not int or owner_id < 1:
+            logger.warning("Dropped live event without a valid device owner")
+            return
         event_loop = self._event_loop
         if event_loop is None or not event_loop.is_running():
             return
         try:
-            event_loop.call_soon_threadsafe(self._enqueue, event)
+            event_loop.call_soon_threadsafe(self._enqueue, owner_id, event)
         except RuntimeError:
             logger.warning("Dropped live event while WebSocket hub was stopping")
 
-    def _enqueue(self, event: LiveEvent) -> None:
+    def _enqueue(self, owner_id: int, event: LiveEvent) -> None:
         queue = self._queue
         if queue is not None:
-            queue.put_nowait(event)
+            queue.put_nowait((owner_id, event))
 
     async def _broadcast_loop(self) -> None:
         queue = self._queue
@@ -82,11 +85,15 @@ class RealtimeHub:
             return
 
         while True:
-            event = await queue.get()
-            await self._broadcast(event)
+            owner_id, event = await queue.get()
+            await self._broadcast(owner_id, event)
 
-    async def _broadcast(self, event: LiveEvent) -> None:
-        connections = tuple(self._connections)
+    async def _broadcast(self, owner_id: int, event: LiveEvent) -> None:
+        connections = tuple(
+            websocket
+            for websocket, user_id in self._connections.items()
+            if user_id == owner_id
+        )
         if not connections:
             return
 
@@ -99,7 +106,7 @@ class RealtimeHub:
         )
         for connection, result in zip(connections, results, strict=True):
             if isinstance(result, BaseException):
-                self._connections.discard(connection)
+                self._connections.pop(connection, None)
                 logger.warning(
                     "Removed failed WebSocket client during broadcast: %s", result
                 )

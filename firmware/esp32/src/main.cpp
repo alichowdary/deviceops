@@ -8,19 +8,17 @@
 #include <Wire.h>
 #include <time.h>
 
+#include <cstring>
+
+#include "mqtt_auth.h"
 #include "secrets.h"
 
 
 namespace {
 
-constexpr char DEVICE_ID[] = "esp32-001";
 constexpr uint16_t MQTT_PORT = 1883;
-
-constexpr char STATUS_TOPIC[] = "deviceops/v1/devices/esp32-001/status";
-constexpr char TELEMETRY_TOPIC[] = "deviceops/v1/devices/esp32-001/telemetry";
-constexpr char COMMAND_TOPIC[] = "deviceops/v1/devices/esp32-001/commands";
-constexpr char COMMAND_ACK_TOPIC[] =
-    "deviceops/v1/devices/esp32-001/command-acks";
+constexpr size_t TOPIC_BUFFER_SIZE = 128;
+constexpr size_t MQTT_BUFFER_SIZE = 1536;
 
 constexpr uint8_t I2C_SDA = 8;
 constexpr uint8_t I2C_SCL = 9;
@@ -29,15 +27,148 @@ constexpr uint8_t RGB_LED_PIN = 48;
 constexpr unsigned long DEFAULT_TELEMETRY_INTERVAL_MS = 5000;
 
 WiFiClient network;
-MQTTClient mqttClient(1024);
+MQTTClient mqttClient(MQTT_BUFFER_SIZE);
 Adafruit_BME280 bme;
 Adafruit_NeoPixel rgbLed(1, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
+
+char statusTopic[TOPIC_BUFFER_SIZE];
+char telemetryTopic[TOPIC_BUFFER_SIZE];
+char commandTopic[TOPIC_BUFFER_SIZE];
+char commandAckTopic[TOPIC_BUFFER_SIZE];
+char bootSessionId[mqtt_auth::SESSION_ID_HEX_SIZE + 1];
+uint8_t signingKey[mqtt_auth::SIGNING_KEY_SIZE];
+String offlineEnvelope;
 
 bool bmeReady = false;
 bool ledOn = false;
 unsigned long lastTelemetryPublish = 0;
 unsigned long telemetryIntervalMs = DEFAULT_TELEMETRY_INTERVAL_MS;
 uint32_t telemetrySequence = 0;
+
+
+bool isDeviceIdValid(const char* value) {
+    if (value == nullptr) {
+        return false;
+    }
+
+    const size_t length = strlen(value);
+    if (length == 0 || length > 64) {
+        return false;
+    }
+
+    const auto isLetterOrDigit = [](char character) {
+        return
+            (character >= 'A' && character <= 'Z') ||
+            (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9');
+    };
+    if (!isLetterOrDigit(value[0])) {
+        return false;
+    }
+
+    for (size_t index = 1; index < length; index++) {
+        const char character = value[index];
+        if (!isLetterOrDigit(character) && character != '.' &&
+            character != '_' && character != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+
+bool buildTopic(char* output, size_t outputSize, const char* suffix) {
+    const int written = snprintf(
+        output,
+        outputSize,
+        "deviceops/v1/devices/%s/%s",
+        DEVICE_ID,
+        suffix
+    );
+    return written > 0 && static_cast<size_t>(written) < outputSize;
+}
+
+
+bool initializeDeviceAuthentication() {
+    if (!isDeviceIdValid(DEVICE_ID)) {
+        Serial.println("Invalid DEVICE_ID configuration.");
+        return false;
+    }
+    if (DEVICE_SECRET[0] == '\0') {
+        Serial.println("DEVICE_SECRET must not be empty.");
+        return false;
+    }
+    if (WIFI_SSID[0] == '\0' || MQTT_BROKER[0] == '\0') {
+        Serial.println("Wi-Fi SSID and MQTT broker must not be empty.");
+        return false;
+    }
+    if (
+        !buildTopic(statusTopic, sizeof(statusTopic), "status") ||
+        !buildTopic(telemetryTopic, sizeof(telemetryTopic), "telemetry") ||
+        !buildTopic(commandTopic, sizeof(commandTopic), "commands") ||
+        !buildTopic(
+            commandAckTopic,
+            sizeof(commandAckTopic),
+            "command-acks"
+        )
+    ) {
+        Serial.println("Device MQTT topic construction failed.");
+        return false;
+    }
+    if (!mqtt_auth::deriveSigningKey(DEVICE_SECRET, signingKey)) {
+        Serial.println("MQTT signing-key derivation failed.");
+        return false;
+    }
+    return true;
+}
+
+
+bool createAuthenticatedPayload(
+    const String& body,
+    mqtt_auth::Direction direction,
+    const char* topic,
+    String& envelope
+) {
+    if (!mqtt_auth::createEnvelope(
+            body,
+            signingKey,
+            direction,
+            topic,
+            bootSessionId,
+            envelope
+        )) {
+        Serial.println("MQTT authenticated-envelope creation failed.");
+        return false;
+    }
+    return true;
+}
+
+
+bool publishAuthenticated(
+    const char* topic,
+    const String& body,
+    bool retained,
+    int qos
+) {
+    String envelope;
+    if (!createAuthenticatedPayload(
+            body,
+            mqtt_auth::Direction::DeviceToServer,
+            topic,
+            envelope
+        )) {
+        return false;
+    }
+    return mqttClient.publish(topic, envelope, retained, qos);
+}
+
+
+void haltStartup() {
+    Serial.println("Firmware startup halted.");
+    while (true) {
+        delay(1000);
+    }
+}
 
 
 void setLed(bool on) {
@@ -110,16 +241,16 @@ bool getUtcTimestamp(char* buffer, size_t bufferSize) {
 
 
 bool publishAckDocument(JsonDocument& document) {
-    char payload[768];
-    const size_t payloadLength =
-        serializeJson(document, payload, sizeof(payload));
+    String body;
+    body.reserve(768);
+    const size_t payloadLength = serializeJson(document, body);
 
     if (payloadLength == 0) {
         Serial.println("ACK JSON serialization failed.");
         return false;
     }
 
-    if (!mqttClient.publish(COMMAND_ACK_TOPIC, payload, false, 1)) {
+    if (!publishAuthenticated(commandAckTopic, body, false, 1)) {
         Serial.println("Failed to publish command ACK.");
         return false;
     }
@@ -223,16 +354,35 @@ void publishDiagnosticsAck(const char* commandId) {
 
 
 void handleCommand(String& topic, String& payload) {
-    if (topic != COMMAND_TOPIC) {
+    if (topic != commandTopic) {
         return;
     }
 
     Serial.println();
-    Serial.println("Received DeviceOps command:");
-    Serial.println(payload);
+    Serial.println("Received DeviceOps command envelope.");
+
+    mqtt_auth::Envelope envelope;
+    if (!mqtt_auth::parseEnvelope(payload, envelope)) {
+        Serial.println("Rejected command: invalid authentication envelope.");
+        return;
+    }
+    if (envelope.sessionId != bootSessionId) {
+        Serial.println("Rejected command: MQTT session mismatch.");
+        return;
+    }
+    if (!mqtt_auth::verifyEnvelope(
+            envelope,
+            signingKey,
+            mqtt_auth::Direction::ServerToDevice,
+            commandTopic
+        )) {
+        Serial.println("Rejected command: invalid signature.");
+        return;
+    }
 
     JsonDocument document;
-    const DeserializationError error = deserializeJson(document, payload);
+    const DeserializationError error =
+        deserializeJson(document, envelope.body);
     if (error) {
         Serial.print("Invalid command JSON: ");
         Serial.println(error.c_str());
@@ -334,16 +484,16 @@ void connectMqtt() {
             Serial.println();
             Serial.println("MQTT connected!");
 
-            if (mqttClient.subscribe(COMMAND_TOPIC, 1)) {
+            if (mqttClient.subscribe(commandTopic, 1)) {
                 Serial.println("Subscribed to DeviceOps command topic.");
+
+                if (publishAuthenticated(statusTopic, "online", true, 1)) {
+                    Serial.println("Published retained ONLINE status.");
+                } else {
+                    Serial.println("Failed to publish ONLINE status.");
+                }
             } else {
                 Serial.println("Failed to subscribe to command topic.");
-            }
-
-            if (mqttClient.publish(STATUS_TOPIC, "online", true, 1)) {
-                Serial.println("Published retained ONLINE status.");
-            } else {
-                Serial.println("Failed to publish ONLINE status.");
             }
         } else {
             Serial.print(".");
@@ -384,15 +534,15 @@ void publishTelemetry() {
     metrics["rssi_dbm"] = rssi;
     metrics["uptime_s"] = uptimeSeconds;
 
-    char payload[512];
-    const size_t payloadLength =
-        serializeJson(document, payload, sizeof(payload));
+    String body;
+    body.reserve(512);
+    const size_t payloadLength = serializeJson(document, body);
     if (payloadLength == 0) {
         Serial.println("Telemetry JSON serialization failed.");
         return;
     }
 
-    if (!mqttClient.publish(TELEMETRY_TOPIC, payload, false, 0)) {
+    if (!publishAuthenticated(telemetryTopic, body, false, 0)) {
         Serial.println("Telemetry MQTT publish failed.");
         return;
     }
@@ -434,6 +584,16 @@ void setup() {
     Serial.println("DeviceOps ESP32 hardware integration");
     Serial.println();
 
+    if (mqtt_auth::runInteroperabilitySelfTest()) {
+        Serial.println("MQTT auth self-test: PASS");
+    } else {
+        Serial.println("MQTT auth self-test: FAIL");
+        haltStartup();
+    }
+    if (!initializeDeviceAuthentication()) {
+        haltStartup();
+    }
+
     rgbLed.begin();
     rgbLed.clear();
     rgbLed.show();
@@ -452,9 +612,19 @@ void setup() {
     connectWiFi();
     syncClock();
 
+    mqtt_auth::generateBootSessionId(bootSessionId);
+    if (!createAuthenticatedPayload(
+            "offline",
+            mqtt_auth::Direction::DeviceToServer,
+            statusTopic,
+            offlineEnvelope
+        )) {
+        haltStartup();
+    }
+
     mqttClient.begin(MQTT_BROKER, MQTT_PORT, network);
     mqttClient.onMessage(handleCommand);
-    mqttClient.setWill(STATUS_TOPIC, "offline", true, 1);
+    mqttClient.setWill(statusTopic, offlineEnvelope.c_str(), true, 1);
     mqttClient.setKeepAlive(5);
     connectMqtt();
 

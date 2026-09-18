@@ -16,6 +16,20 @@ def _integer_environment_value(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer") from exc
 
 
+def _positive_integer_environment_value(name: str, default: int) -> int:
+    value = _integer_environment_value(name, default)
+    if value < 1:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
+def _nonempty_environment_value(name: str, default: str) -> str:
+    value = os.getenv(name, default)
+    if not value.strip():
+        raise ValueError(f"{name} must not be empty")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -23,6 +37,8 @@ class Settings:
     mqtt_port: int
     mqtt_client_id: str
     cors_origins: tuple[str, ...]
+    auth_secret: str
+    auth_token_lifetime_seconds: int
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -41,6 +57,13 @@ class Settings:
                     "http://localhost:3000,http://127.0.0.1:3000",
                 ).split(",")
                 if origin.strip()
+            ),
+            auth_secret=_nonempty_environment_value(
+                "DEVICEOPS_AUTH_SECRET",
+                "deviceops-local-development-secret-must-be-overridden",
+            ),
+            auth_token_lifetime_seconds=_positive_integer_environment_value(
+                "DEVICEOPS_AUTH_TOKEN_LIFETIME_SECONDS", 86_400
             ),
         )
 

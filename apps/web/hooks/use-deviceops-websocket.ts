@@ -91,53 +91,104 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
   return null;
 }
 
+function isAuthenticatedControlMessage(rawMessage: string): boolean {
+  let message: unknown;
+  try {
+    message = JSON.parse(rawMessage);
+  } catch {
+    return false;
+  }
+  return (
+    isRecord(message) &&
+    Object.keys(message).length === 1 &&
+    message.type === "authenticated"
+  );
+}
+
 export function useDeviceOpsWebSocket({
   enabled,
+  token,
   onEvent,
   onReconnect,
+  onAuthenticationFailure,
 }: {
   enabled: boolean;
+  token: string | null;
   onEvent: (event: DeviceOpsEvent) => void;
   onReconnect: () => void;
+  onAuthenticationFailure: () => void;
 }): LiveConnectionState {
   const [connectionState, setConnectionState] =
     useState<LiveConnectionState>("connecting");
   const onEventRef = useRef(onEvent);
   const onReconnectRef = useRef(onReconnect);
+  const onAuthenticationFailureRef = useRef(onAuthenticationFailure);
 
   useEffect(() => {
     onEventRef.current = onEvent;
     onReconnectRef.current = onReconnect;
-  }, [onEvent, onReconnect]);
+    onAuthenticationFailureRef.current = onAuthenticationFailure;
+  }, [onAuthenticationFailure, onEvent, onReconnect]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !token) return;
 
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
-    let hasConnected = false;
+    let hasAuthenticated = false;
     let stopped = false;
 
     function connect() {
       if (stopped) return;
 
-      socket = new WebSocket(configuredWebSocketUrl);
-      socket.onopen = () => {
-        const recoveredConnection = hasConnected || reconnectAttempt > 0;
-        hasConnected = true;
-        reconnectAttempt = 0;
-        setConnectionState("live");
-        if (recoveredConnection) onReconnectRef.current();
+      const currentSocket = new WebSocket(configuredWebSocketUrl);
+      let authenticated = false;
+      let authenticationSent = false;
+      socket = currentSocket;
+
+      currentSocket.onopen = () => {
+        if (stopped || authenticationSent) return;
+        authenticationSent = true;
+        currentSocket.send(JSON.stringify({ type: "authenticate", token }));
       };
-      socket.onmessage = (message) => {
+
+      currentSocket.onmessage = (message) => {
+        if (stopped) return;
+        if (!authenticated) {
+          if (
+            typeof message.data !== "string" ||
+            !isAuthenticatedControlMessage(message.data)
+          ) {
+            currentSocket.close(1008, "Unexpected authentication response");
+            return;
+          }
+
+          const recoveredConnection = hasAuthenticated || reconnectAttempt > 0;
+          authenticated = true;
+          hasAuthenticated = true;
+          reconnectAttempt = 0;
+          setConnectionState("live");
+          if (recoveredConnection) onReconnectRef.current();
+          return;
+        }
+
         if (typeof message.data !== "string") return;
         const event = parseEvent(message.data);
         if (event) onEventRef.current(event);
       };
-      socket.onerror = () => socket?.close();
-      socket.onclose = () => {
+
+      currentSocket.onerror = () => currentSocket.close();
+      currentSocket.onclose = (event) => {
+        if (socket === currentSocket) socket = null;
         if (stopped) return;
+
+        if (!authenticated && event.code === 1008) {
+          stopped = true;
+          onAuthenticationFailureRef.current();
+          return;
+        }
+
         setConnectionState("reconnecting");
         const delay = Math.min(
           1_000 * 2 ** reconnectAttempt,
@@ -154,7 +205,7 @@ export function useDeviceOpsWebSocket({
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       socket?.close(1000, "Page closed");
     };
-  }, [enabled]);
+  }, [enabled, token]);
 
   return connectionState;
 }

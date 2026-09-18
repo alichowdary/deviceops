@@ -12,9 +12,15 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { useAuth } from "@/components/auth-provider";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
-import { formatExactTime, formatRelativeTime, formatUptime } from "@/lib/format";
+import {
+  formatExactTime,
+  formatRelativeTime,
+  formatUptime,
+  isLaterTimestamp,
+} from "@/lib/format";
 import type {
   CommandRequest,
   Device,
@@ -90,29 +96,39 @@ function mergeCommandSnapshots(
 }
 
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
+  const { invalidateSession, token } = useAuth();
   const [requestNumber, setRequestNumber] = useState(0);
   const [state, setState] = useState<DeviceState>(initialState);
 
   useEffect(() => {
+    if (!token) return;
     const controller = new AbortController();
     const encodedDeviceId = encodeURIComponent(deviceId);
+    const requestOptions = {
+      signal: controller.signal,
+      token,
+      onUnauthorized: invalidateSession,
+    };
 
     Promise.all([
-      apiGet<Device>(`/api/devices/${encodedDeviceId}`, controller.signal),
+      apiGet<Device>(`/api/devices/${encodedDeviceId}`, requestOptions),
       apiGet<Telemetry[]>(
         `/api/devices/${encodedDeviceId}/telemetry?limit=100`,
-        controller.signal,
+        requestOptions,
       ),
       apiGet<DeviceCommand[]>(
         `/api/devices/${encodedDeviceId}/commands?limit=${RECENT_COMMAND_LIMIT}`,
-        controller.signal,
+        requestOptions,
       ),
     ])
       .then(([device, telemetry, commands]) => {
         setState((current) => ({
           device:
             current.device &&
-            new Date(current.device.last_seen_at) > new Date(device.last_seen_at)
+            isLaterTimestamp(
+              current.device.last_seen_at,
+              device.last_seen_at,
+            )
               ? current.device
               : device,
           telemetry: mergeTelemetrySnapshots(telemetry, current.telemetry),
@@ -133,7 +149,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       });
 
     return () => controller.abort();
-  }, [deviceId, requestNumber]);
+  }, [deviceId, invalidateSession, requestNumber, token]);
 
   const refresh = useCallback(() => {
     setState((current) => ({ ...current, loading: true, error: null }));
@@ -164,6 +180,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             device: {
               ...current.device,
               status: event.data.status,
+              first_seen_at: current.device.first_seen_at ?? event.received_at,
               last_seen_at: event.received_at,
             },
           };
@@ -176,7 +193,11 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         };
         return {
           ...current,
-          device: { ...current.device, last_seen_at: event.received_at },
+          device: {
+            ...current.device,
+            first_seen_at: current.device.first_seen_at ?? event.received_at,
+            last_seen_at: event.received_at,
+          },
           telemetry: mergeTelemetrySnapshots([sample], current.telemetry),
         };
       });
@@ -185,16 +206,20 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   );
 
   const liveConnection = useDeviceOpsWebSocket({
-    enabled: state.device !== null,
+    enabled: state.device !== null && token !== null,
+    token,
     onEvent: handleLiveEvent,
     onReconnect: refresh,
+    onAuthenticationFailure: invalidateSession,
   });
 
   const submitCommand = useCallback(
     async (request: CommandRequest) => {
+      if (!token) throw new ApiError("Authentication is required.", 401);
       const command = await apiPost<DeviceCommand>(
         `/api/devices/${encodeURIComponent(deviceId)}/commands`,
         request,
+        { token, onUnauthorized: invalidateSession },
       );
       setState((current) => ({
         ...current,
@@ -202,7 +227,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       }));
       return command;
     },
-    [deviceId],
+    [deviceId, invalidateSession, token],
   );
 
   if (state.loading && state.device === null) {
@@ -280,13 +305,27 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         <div className="detail-meta-item">
           <span className="detail-label">Last seen</span>
           <span className="detail-value" title={formatExactTime(device.last_seen_at)}>
-            {formatRelativeTime(device.last_seen_at)} · <span className="mono">{formatExactTime(device.last_seen_at)}</span>
+            {device.last_seen_at ? (
+              <>
+                {formatRelativeTime(device.last_seen_at)} ·{" "}
+                <span className="mono">{formatExactTime(device.last_seen_at)}</span>
+              </>
+            ) : (
+              "Never"
+            )}
           </span>
         </div>
         <div className="detail-meta-item">
           <span className="detail-label">First seen</span>
           <span className="detail-value" title={formatExactTime(device.first_seen_at)}>
-            {formatRelativeTime(device.first_seen_at)} · <span className="mono">{formatExactTime(device.first_seen_at)}</span>
+            {device.first_seen_at ? (
+              <>
+                {formatRelativeTime(device.first_seen_at)} ·{" "}
+                <span className="mono">{formatExactTime(device.first_seen_at)}</span>
+              </>
+            ) : (
+              "Never"
+            )}
           </span>
         </div>
       </section>

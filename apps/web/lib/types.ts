@@ -1,5 +1,17 @@
 export type DeviceStatus = "online" | "offline" | "unknown";
 
+export interface User {
+  id: number;
+  email: string;
+  created_at: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: "bearer";
+  expires_in: number;
+}
+
 export interface Health {
   status: "ok" | "degraded";
   database: "up" | "down";
@@ -10,8 +22,15 @@ export interface Health {
 export interface Device {
   device_id: string;
   status: DeviceStatus;
-  first_seen_at: string;
-  last_seen_at: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+export interface DeviceRegistration {
+  device_id: string;
+  device_secret: string;
+  status: "unknown";
+  created_at: string;
 }
 
 export interface Telemetry {

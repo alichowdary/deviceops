@@ -1,10 +1,12 @@
 # DeviceOps
 
 DeviceOps is an incremental IoT fleet management and observability project.
-Milestones 1A through 6 provide a local MQTT broker, a versioned device protocol,
+Milestones 1A through 7 provide a local MQTT broker, a versioned device protocol,
 a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, a
 Next.js fleet console with live updates and device-specific remote commands, and
-a verified ESP32-S3 reference firmware project.
+a verified ESP32-S3 reference firmware project. Milestone 7 adds user
+authentication, per-user device ownership, one-time device registration
+credentials, authenticated device messages, and owner-isolated live updates.
 
 The implemented flow is:
 
@@ -48,13 +50,16 @@ The version 1 MQTT topic and payload contract is in
 presence, commands, acknowledgements, and their delivery semantics.
 
 Installation, run, and observation instructions for the Python simulator are in
-[`simulator/README.md`](simulator/README.md). With the broker running and the
-simulator environment installed, start the default `sim-001` device with:
+[`simulator/README.md`](simulator/README.md). Register a device through the API or
+web console first. With the broker running and the simulator environment
+installed, start that registered device with:
 
 ```powershell
 cd simulator
 .\.venv\Scripts\Activate.ps1
-python -m device_simulator --device-id sim-001 --interval 5
+$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
+python -m device_simulator --device-id <registered-device-id> --interval 5
+Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
 ## ESP32 reference firmware
@@ -93,12 +98,12 @@ we define no custom networks or data volumes, and broker persistence is disabled
 The official image itself creates anonymous volumes at `/mosquitto/data` and
 `/mosquitto/log`; this configuration does not write broker state or log files there.
 
-**Local development only:** anonymous MQTT access is intentionally insecure.
+**Local development only:** anonymous broker access is intentionally insecure.
 Clients that can reach the broker can publish and subscribe without credentials,
 and traffic is unencrypted. The broker may be reachable from the LAN when the
-host firewall permits it. Anonymous access will be replaced with authenticated
-device access in a later milestone. Do not use this configuration in production.
-There is no MQTT WebSocket listener.
+host firewall permits it. DeviceOps authenticates version 1 device envelopes at
+the application layer; broker authentication and TLS remain future work. Do not
+use this configuration in production. There is no MQTT WebSocket listener.
 
 ## Manual MQTT smoke test
 
@@ -172,5 +177,8 @@ After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload
 
 Milestone 6 supports battery-powered simulators and battery-free environmental
 sensors through the same ingestion and console paths, and includes the verified
-ESP32 reference firmware. Automatic capability discovery, authentication,
-alerts, OTA updates, and cloud infrastructure remain future work.
+ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
+device registration credentials, authenticated MQTT envelopes, and isolated
+realtime delivery. Automatic capability discovery, broker-level MQTT
+authentication and TLS, alerts, OTA updates, and cloud infrastructure remain
+future work.

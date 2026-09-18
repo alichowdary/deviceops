@@ -9,6 +9,63 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 DEVICE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+PASSWORD_MAX_LENGTH = 128
+
+
+def _normalize_email(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("email must be a string")
+    return value.strip().lower()
+
+
+class UserRegister(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320, pattern=EMAIL_PATTERN)
+    password: str = Field(min_length=8, max_length=PASSWORD_MAX_LENGTH)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> str:
+        return _normalize_email(value)
+
+
+class UserLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320, pattern=EMAIL_PATTERN)
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> str:
+        return _normalize_email(value)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    created_at: datetime
+
+
+class TokenRead(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int
+
+
+class DeviceRegistrationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DeviceRegistrationRead(BaseModel):
+    device_id: str
+    device_secret: str
+    status: Literal["unknown"]
+    created_at: datetime
 
 
 class TelemetryMetrics(BaseModel):
@@ -48,8 +105,8 @@ class DeviceRead(BaseModel):
 
     device_id: str
     status: str
-    first_seen_at: datetime
-    last_seen_at: datetime
+    first_seen_at: datetime | None
+    last_seen_at: datetime | None
 
 
 class TelemetryRead(BaseModel):

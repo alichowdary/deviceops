@@ -1,14 +1,17 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { AddDeviceDialog } from "@/components/add-device-dialog";
+import { useAuth } from "@/components/auth-provider";
 import { DeviceTable } from "@/components/device-table";
 import { FleetSummary } from "@/components/fleet-summary";
 import { LiveConnectionIndicator } from "@/components/live-connection-indicator";
 import { RefreshButton } from "@/components/refresh-button";
 import { LoadingState, StatePanel } from "@/components/state-panel";
 import { apiGet } from "@/lib/api";
+import { isLaterTimestamp } from "@/lib/format";
 import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
 import type { Device, DeviceOpsEvent, Health } from "@/lib/types";
 
@@ -32,22 +35,29 @@ function mergeDeviceSnapshots(snapshot: Device[], current: Device[] | null): Dev
   return snapshot.map((device) => {
     const liveDevice = currentById.get(device.device_id);
     return liveDevice &&
-      new Date(liveDevice.last_seen_at) > new Date(device.last_seen_at)
+      isLaterTimestamp(liveDevice.last_seen_at, device.last_seen_at)
       ? liveDevice
       : device;
   });
 }
 
 export default function FleetPage() {
+  const { invalidateSession, token } = useAuth();
+  const [addDeviceOpen, setAddDeviceOpen] = useState(false);
   const [requestNumber, setRequestNumber] = useState(0);
   const [state, setState] = useState<FleetState>(initialState);
 
   useEffect(() => {
+    if (!token) return;
     const controller = new AbortController();
 
     Promise.all([
-      apiGet<Device[]>("/api/devices", controller.signal),
-      apiGet<Health>("/health", controller.signal),
+      apiGet<Device[]>("/api/devices", {
+        signal: controller.signal,
+        token,
+        onUnauthorized: invalidateSession,
+      }),
+      apiGet<Health>("/health", { signal: controller.signal }),
     ])
       .then(([devices, health]) => {
         setState((current) => ({
@@ -67,7 +77,7 @@ export default function FleetPage() {
       });
 
     return () => controller.abort();
-  }, [requestNumber]);
+  }, [invalidateSession, requestNumber, token]);
 
   const refresh = useCallback(() => {
     setState((current) => ({ ...current, loading: true, error: null }));
@@ -87,6 +97,7 @@ export default function FleetPage() {
             ...existing,
             status:
               event.type === "device_status" ? event.data.status : existing.status,
+            first_seen_at: existing.first_seen_at ?? event.received_at,
             last_seen_at: event.received_at,
           }
         : {
@@ -104,10 +115,31 @@ export default function FleetPage() {
     });
   }, []);
 
+  const handleRegisteredDevice = useCallback((registeredDevice: Device) => {
+    setState((current) => {
+      const devices = current.devices ?? [];
+      if (
+        devices.some(
+          (device) => device.device_id === registeredDevice.device_id,
+        )
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        devices: [...devices, registeredDevice].sort((left, right) =>
+          left.device_id.localeCompare(right.device_id),
+        ),
+      };
+    });
+  }, []);
+
   const liveConnection = useDeviceOpsWebSocket({
-    enabled: state.devices !== null,
+    enabled: state.devices !== null && token !== null,
+    token,
     onEvent: handleLiveEvent,
     onReconnect: refresh,
+    onAuthenticationFailure: invalidateSession,
   });
 
   if (state.loading && state.devices === null) {
@@ -139,6 +171,14 @@ export default function FleetPage() {
           <p className="page-description">Device inventory and observed connectivity</p>
         </div>
         <div className="page-actions">
+          <button
+            className="button button-primary"
+            onClick={() => setAddDeviceOpen(true)}
+            type="button"
+          >
+            <Plus aria-hidden="true" size={14} />
+            Add device
+          </button>
           <RefreshButton loading={state.loading} onClick={refresh} />
         </div>
       </header>
@@ -173,9 +213,9 @@ export default function FleetPage() {
 
       {devices.length === 0 ? (
         <StatePanel
-          description="Start a simulator to publish status and telemetry. The device will appear after FastAPI ingests its first message."
+          description="Register a device to generate its one-time credentials and add it to this fleet."
           eyebrow="0 devices"
-          title="No devices observed"
+          title="No devices registered"
         />
       ) : (
         <DeviceTable devices={devices} />
@@ -184,6 +224,15 @@ export default function FleetPage() {
       <p className="footer-note">
         Data is loaded from the DeviceOps REST API. Use Refresh to request the latest persisted state.
       </p>
+
+      {addDeviceOpen && token ? (
+        <AddDeviceDialog
+          onClose={() => setAddDeviceOpen(false)}
+          onRegistered={handleRegisteredDevice}
+          onUnauthorized={invalidateSession}
+          token={token}
+        />
+      ) : null}
     </>
   );
 }

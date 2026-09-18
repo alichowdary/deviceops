@@ -1,9 +1,9 @@
 # Device simulator
 
-This small Python process behaves like one DeviceOps device. It connects to the
-local Mosquitto broker, publishes gradually changing telemetry, and maintains a
-retained online/offline status. It also executes the three version 1 commands
-documented in
+This small Python process behaves like one registered DeviceOps device. It
+connects to Mosquitto, publishes authenticated, gradually changing telemetry,
+and maintains an authenticated retained online/offline status. It also verifies
+and executes the three version 1 commands documented in
 [`../contracts/mqtt.md`](../contracts/mqtt.md).
 
 ## Install
@@ -26,21 +26,31 @@ in this repository with Python 3.14.5.
 ## Run
 
 Start the broker from the repository root, then run the simulator from this
-directory with the virtual environment activated:
+directory with the virtual environment activated. Register a device through the
+API first. Supply its one-time plaintext secret through the
+`DEVICEOPS_DEVICE_SECRET` environment variable; the simulator never prints it.
+Using `Read-Host` avoids putting the secret in PowerShell command history:
 
 ```powershell
 docker compose up -d
 cd simulator
 .\.venv\Scripts\Activate.ps1
-python -m device_simulator
+$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
+python -m device_simulator --device-id <registered-device-id>
+Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
-The default device ID is `sim-001`, and the default interval is five seconds.
-Override either with standard CLI options:
+`--device-id` is required. The telemetry interval defaults to five seconds, the
+broker host to `localhost`, and the broker TCP port to `1883`. Override them with
+standard CLI options:
 
 ```powershell
-python -m device_simulator --device-id sim-002 --interval 2.5
+python -m device_simulator --device-id <registered-device-id> --interval 2.5 --broker-host localhost --broker-port 1883
 ```
+
+Startup fails before connecting if `DEVICEOPS_DEVICE_SECRET` is absent or empty.
+The secret is hashed locally to derive the MQTT signing key and is never sent in
+an MQTT payload.
 
 After connecting, the simulator subscribes to its device-specific command topic
 with QoS 1. Supported commands turn its internal LED state on or off, change the
@@ -54,9 +64,15 @@ new cadence takes effect immediately. The simulator caches the 100 most recent
 acknowledgements for its process lifetime; duplicate QoS 1 deliveries resend the
 same acknowledgement without repeating the side effect.
 
-Press Ctrl+C for a clean shutdown. The simulator publishes retained `offline`
-before disconnecting. If the process or network connection disappears without a
-clean disconnect, its MQTT Last Will makes Mosquitto publish retained `offline`.
+The simulator creates one random 16-byte MQTT session ID when the process starts
+and uses it for its Last Will, status, telemetry, acknowledgements, and command
+verification. Automatic reconnects within that process keep the same session ID;
+restarting the simulator creates a new one.
+
+Press Ctrl+C for a clean shutdown. The simulator publishes an authenticated,
+retained `offline` envelope before disconnecting. If the process or network
+connection disappears without a clean disconnect, its authenticated MQTT Last
+Will makes Mosquitto publish retained `offline`.
 
 If the broker is unavailable, the simulator exits with an error and reminds you
 how to start it.

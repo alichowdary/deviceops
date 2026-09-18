@@ -8,11 +8,13 @@ const exactTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   timeZoneName: "short",
 });
 
-export function formatExactTime(value: string): string {
+export function formatExactTime(value: string | null): string {
+  if (value === null) return "Never";
   return exactTimestampFormatter.format(new Date(value));
 }
 
-export function formatRelativeTime(value: string): string {
+export function formatRelativeTime(value: string | null): string {
+  if (value === null) return "Never";
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
   const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
   const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -29,6 +31,15 @@ export function formatRelativeTime(value: string): string {
     }
   }
   return formatter.format(seconds, "second");
+}
+
+export function isLaterTimestamp(
+  candidate: string | null,
+  reference: string | null,
+): boolean {
+  if (candidate === null) return false;
+  if (reference === null) return true;
+  return new Date(candidate).getTime() > new Date(reference).getTime();
 }
 
 export function formatChartTime(value: string): string {
