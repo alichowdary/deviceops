@@ -4,6 +4,7 @@
 #include <Adafruit_Sensor.h>
 #include <ArduinoJson.h>
 #include <MQTT.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
@@ -25,6 +26,10 @@ constexpr uint8_t I2C_SCL = 9;
 constexpr uint8_t BME280_I2C_ADDRESS = 0x76;
 constexpr uint8_t RGB_LED_PIN = 48;
 constexpr unsigned long DEFAULT_TELEMETRY_INTERVAL_MS = 5000;
+constexpr uint32_t MIN_TELEMETRY_INTERVAL_S = 1;
+constexpr uint32_t MAX_TELEMETRY_INTERVAL_S = 60;
+constexpr char CONFIG_NAMESPACE[] = "deviceops";
+constexpr char REPORTING_INTERVAL_KEY[] = "report_s";
 
 WiFiClient network;
 MQTTClient mqttClient(MQTT_BUFFER_SIZE);
@@ -44,6 +49,53 @@ bool ledOn = false;
 unsigned long lastTelemetryPublish = 0;
 unsigned long telemetryIntervalMs = DEFAULT_TELEMETRY_INTERVAL_MS;
 uint32_t telemetrySequence = 0;
+
+
+bool isReportingIntervalValid(uint32_t intervalSeconds) {
+    return
+        intervalSeconds >= MIN_TELEMETRY_INTERVAL_S &&
+        intervalSeconds <= MAX_TELEMETRY_INTERVAL_S;
+}
+
+
+void loadReportingInterval() {
+    uint32_t intervalSeconds = DEFAULT_TELEMETRY_INTERVAL_MS / 1000UL;
+    bool loadedPersistedInterval = false;
+    Preferences preferences;
+
+    if (preferences.begin(CONFIG_NAMESPACE, false)) {
+        if (preferences.isKey(REPORTING_INTERVAL_KEY)) {
+            const uint32_t savedInterval =
+                preferences.getUInt(REPORTING_INTERVAL_KEY, 0);
+            if (isReportingIntervalValid(savedInterval)) {
+                intervalSeconds = savedInterval;
+                loadedPersistedInterval = true;
+            }
+        }
+        preferences.end();
+    }
+
+    telemetryIntervalMs =
+        static_cast<unsigned long>(intervalSeconds) * 1000UL;
+    Serial.print("Reporting interval: ");
+    Serial.print(intervalSeconds);
+    Serial.println(
+        loadedPersistedInterval ? " s (persisted)" : " s (default)"
+    );
+}
+
+
+bool persistReportingInterval(uint32_t intervalSeconds) {
+    Preferences preferences;
+    if (!preferences.begin(CONFIG_NAMESPACE, false)) {
+        return false;
+    }
+
+    const size_t bytesWritten =
+        preferences.putUInt(REPORTING_INTERVAL_KEY, intervalSeconds);
+    preferences.end();
+    return bytesWritten == sizeof(intervalSeconds);
+}
 
 
 bool isDeviceIdValid(const char* value) {
@@ -443,13 +495,30 @@ void handleCommand(String& topic, String& payload) {
         }
 
         const int requestedInterval = arguments["interval_s"].as<int>();
-        if (requestedInterval < 1 || requestedInterval > 60) {
+        if (
+            requestedInterval < static_cast<int>(MIN_TELEMETRY_INTERVAL_S) ||
+            requestedInterval > static_cast<int>(MAX_TELEMETRY_INTERVAL_S)
+        ) {
             publishCommandAck(
                 commandId,
                 "failed",
                 false,
                 -1,
                 "interval_s must be between 1 and 60"
+            );
+            return;
+        }
+
+        if (!persistReportingInterval(
+                static_cast<uint32_t>(requestedInterval)
+            )) {
+            Serial.println("Failed to persist reporting interval.");
+            publishCommandAck(
+                commandId,
+                "failed",
+                false,
+                -1,
+                "failed to persist reporting interval"
             );
             return;
         }
@@ -583,6 +652,8 @@ void setup() {
     Serial.println();
     Serial.println("DeviceOps ESP32 hardware integration");
     Serial.println();
+
+    loadReportingInterval();
 
     if (mqtt_auth::runInteroperabilitySelfTest()) {
         Serial.println("MQTT auth self-test: PASS");

@@ -68,6 +68,8 @@ The firmware:
   signed QoS 0 messages and no retention;
 - verifies the session and HMAC before handling `set_led`,
   `set_reporting_interval`, or `request_diagnostics`;
+- stores a successfully applied reporting interval in local ESP32 NVS so it
+  survives reboot and power cycles;
 - publishes signed command acknowledgements with QoS 1 and no retention.
 
 Topics and payloads follow [`../../contracts/mqtt.md`](../../contracts/mqtt.md).
