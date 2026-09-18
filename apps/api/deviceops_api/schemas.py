@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .events import EventSeverity, EventType
+
 
 DEVICE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
@@ -124,6 +126,17 @@ class TelemetryRead(BaseModel):
     rssi_dbm: int
     uptime_s: int
     additional_metrics: dict[str, Any] | None
+
+
+class DeviceEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    device_id: str
+    event_type: EventType
+    severity: EventSeverity
+    occurred_at: datetime
+    details: dict[str, Any]
 
 
 class HealthRead(BaseModel):

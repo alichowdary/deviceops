@@ -1,9 +1,9 @@
 # DeviceOps API
 
 The backend runs FastAPI and owns the MQTT subscriber. It validates version 1
-device messages, stores device state, telemetry, and command history in
-PostgreSQL, publishes validated operator commands, and broadcasts newly
-committed device events at `/ws`.
+device messages, stores device state, telemetry, command history, and meaningful
+fleet activity in PostgreSQL, publishes validated operator commands, and
+broadcasts newly committed updates at `/ws`.
 
 ## Local setup
 
@@ -73,11 +73,36 @@ Invoke-RestMethod -Headers $headers http://127.0.0.1:8000/api/devices
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/telemetry?limit=100"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/commands?limit=20"
+Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/events?limit=100"
 ```
 
 Telemetry is returned oldest-to-newest within the requested recent window. The
 default limit is 100 and the maximum is 500. Unknown devices return HTTP 404.
 Interactive OpenAPI documentation is at <http://127.0.0.1:8000/docs>.
+
+## Persistent fleet events
+
+`GET /api/events` returns the authenticated user's newest events first. The
+default limit is 100 and the maximum is 200. Optional `device_id`, `event_type`,
+and `severity` query parameters narrow the feed. Filtering by an unknown or
+unowned device returns the same HTTP 404 privacy boundary used by device routes.
+Responses never include `owner_id`.
+
+The persistent event types and severities are:
+
+| Event type | Severity | Created when |
+| --- | --- | --- |
+| `device_registered` | `info` | An owned registration commits |
+| `device_online` | `success` | Authenticated status transitions to online |
+| `device_offline` | `warning` | Authenticated status transitions to offline |
+| `command_issued` | `info` | A pending command commits |
+| `command_succeeded` | `success` | The first valid ACK succeeds the command |
+| `command_failed` | `error` | The first valid ACK fails the command |
+
+Repeated effective status messages and duplicate command acknowledgements do not
+create duplicate events. Telemetry samples are deliberately excluded. Event
+details contain only safe operational command/status context; credentials,
+authenticated MQTT envelopes, and ownership routing metadata are not stored.
 
 ## User authentication
 
@@ -174,9 +199,32 @@ time; reconnects must authenticate again.
 The frontend completes this handshake before treating the socket as live and
 reloads its REST snapshot after an authenticated reconnect.
 
-The endpoint emits only events accepted by the existing MQTT validation and
-successfully committed to PostgreSQL. It does not replay history; reconnecting
-clients should fetch a fresh REST snapshot before applying new events.
+The endpoint emits MQTT deltas accepted by the existing validation and committed
+to PostgreSQL. It also emits `event_created` after the corresponding persistent
+fleet event commits. The socket does not replay history; reconnecting clients
+fetch fresh REST snapshots before applying new deltas.
+
+Persistent event notifications use this shape:
+
+```json
+{
+  "type": "event_created",
+  "received_at": "2026-09-18T17:00:00Z",
+  "data": {
+    "id": 42,
+    "device_id": "dev-example",
+    "event_type": "device_online",
+    "severity": "success",
+    "occurred_at": "2026-09-18T17:00:00Z",
+    "details": {
+      "previous_status": "offline",
+      "status": "online"
+    }
+  }
+}
+```
+
+`owner_id` remains internal to WebSocket routing and never enters this JSON.
 
 Telemetry events use this envelope:
 

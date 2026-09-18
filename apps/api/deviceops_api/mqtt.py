@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import SessionLocal
+from .events import create_device_event, event_created_message
 from .models import Device, DeviceCommand, Telemetry
 from .mqtt_auth import (
     AuthenticatedMqttEnvelope,
@@ -400,6 +401,7 @@ class MqttIngestor:
         envelope: AuthenticatedMqttEnvelope,
         received_at: datetime,
     ) -> None:
+        event = None
         try:
             with SessionLocal.begin() as session:
                 device = self._authenticate_device_envelope(
@@ -419,6 +421,7 @@ class MqttIngestor:
                     )
                     return
 
+                previous_status = device.status
                 if status == "online":
                     device.mqtt_session_id = envelope.session_id
                     if device.first_seen_at is None:
@@ -434,6 +437,22 @@ class MqttIngestor:
                 device.status = status
                 device.last_seen_at = received_at
                 owner_id = device.owner_id
+                if previous_status != status:
+                    event = create_device_event(
+                        session,
+                        owner_id=owner_id,
+                        device_id=topic_device_id,
+                        event_type=(
+                            "device_online"
+                            if status == "online"
+                            else "device_offline"
+                        ),
+                        occurred_at=received_at,
+                        details={
+                            "previous_status": previous_status,
+                            "status": status,
+                        },
+                    )
         except SQLAlchemyError:
             logger.exception("Database write failed for status from %s", topic_device_id)
             return
@@ -453,6 +472,11 @@ class MqttIngestor:
                 "data": {"status": status},
             }
         )
+        if event is not None:
+            realtime_hub.publish_from_thread(
+                owner_id,
+                event_created_message(event, received_at=received_at),
+            )
 
     def _process_command_ack(
         self,
@@ -461,6 +485,7 @@ class MqttIngestor:
         envelope: AuthenticatedMqttEnvelope,
         received_at: datetime,
     ) -> None:
+        event = None
         try:
             with SessionLocal.begin() as session:
                 device = self._authenticate_device_envelope(
@@ -531,6 +556,23 @@ class MqttIngestor:
                 arguments = command.arguments
                 issued_at = command.issued_at
                 owner_id = device.owner_id
+                event = create_device_event(
+                    session,
+                    owner_id=owner_id,
+                    device_id=topic_device_id,
+                    event_type=(
+                        "command_succeeded"
+                        if payload.status == "succeeded"
+                        else "command_failed"
+                    ),
+                    occurred_at=received_at,
+                    details={
+                        "command_id": payload.command_id,
+                        "command_type": command_type,
+                        "arguments": arguments,
+                        "result": payload.result,
+                    },
+                )
         except SQLAlchemyError:
             logger.exception(
                 "Database update failed for command acknowledgement from device=%s",
@@ -561,6 +603,10 @@ class MqttIngestor:
                     "result": payload.result,
                 },
             }
+        )
+        realtime_hub.publish_from_thread(
+            owner_id,
+            event_created_message(event, received_at=received_at),
         )
 
 

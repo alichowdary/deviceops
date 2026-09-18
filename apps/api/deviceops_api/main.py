@@ -18,6 +18,7 @@ from .realtime import realtime_hub
 from .routes.auth import router as auth_router
 from .routes.commands import router as commands_router
 from .routes.devices import router as devices_router
+from .routes.events import router as events_router
 from .schemas import HealthRead
 from .security import AccessTokenError
 from .websocket_auth import authenticate_websocket
@@ -54,6 +55,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(devices_router)
 app.include_router(commands_router)
+app.include_router(events_router)
 
 
 @app.websocket("/ws")

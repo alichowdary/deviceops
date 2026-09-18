@@ -1,9 +1,9 @@
 # DeviceOps web console
 
 The frontend is a Next.js operations console. It loads device state, telemetry,
-and command history through FastAPI's REST API, then receives new committed
-telemetry, status, and command updates through one FastAPI WebSocket. The browser
-does not connect to MQTT.
+command history, and persistent fleet events through FastAPI's REST API, then
+receives new committed telemetry, status, command, and event updates through one
+FastAPI WebSocket. The browser does not connect to MQTT.
 
 ## Requirements
 
@@ -55,6 +55,12 @@ device acknowledgement arrives through the WebSocket. Metric cards,
 charts, and recent-sample columns appear only when the device reports that
 optional measurement, so battery-powered simulators and battery-free sensor
 devices share the same detail page without empty charts.
+
+The Events navigation item opens `/events`, a newest-first operational feed for
+registration, connectivity transitions, and command activity. Device, event
+type, and severity filters apply to both the REST snapshot and live updates.
+Persistent IDs deduplicate snapshot and WebSocket delivery. Alerts and routine
+telemetry samples are not part of this page.
 
 Authenticated users can select **Add device** from Fleet to generate a device ID
 and one-time device secret. Copy both values before closing the credential

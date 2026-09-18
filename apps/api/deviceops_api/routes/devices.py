@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +16,7 @@ from ..device_credentials import (
     generate_device_secret,
     hash_device_secret,
 )
+from ..events import create_device_event, event_created_message
 from ..models import Device, Telemetry, User
 from ..ownership import get_owned_device_or_404
 from ..schemas import (
@@ -24,6 +26,7 @@ from ..schemas import (
     TelemetryRead,
 )
 from ..security import get_current_user
+from ..realtime import realtime_hub
 
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -53,6 +56,14 @@ def register_device(
     )
     session.add(device)
     try:
+        session.flush()
+        event = create_device_event(
+            session,
+            owner_id=current_user.id,
+            device_id=device.device_id,
+            event_type="device_registered",
+            occurred_at=datetime.now(timezone.utc),
+        )
         session.commit()
     except SQLAlchemyError as exc:
         session.rollback()
@@ -60,6 +71,10 @@ def register_device(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Device registration failed",
         ) from exc
+
+    realtime_hub.publish_from_thread(
+        current_user.id, event_created_message(event)
+    )
 
     return DeviceRegistrationRead(
         device_id=device.device_id,

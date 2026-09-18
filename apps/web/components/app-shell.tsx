@@ -10,7 +10,7 @@ import { AuthScreen } from "@/components/auth-screen";
 
 const navItems = [
   { label: "Fleet", href: "/", icon: RadioTower, enabled: true },
-  { label: "Events", href: "#", icon: Activity, enabled: false },
+  { label: "Events", href: "/events", icon: Activity, enabled: true },
   { label: "Alerts", href: "#", icon: Bell, enabled: false },
 ] as const;
 
@@ -42,7 +42,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             const Icon = item.icon;
             const active =
               item.enabled &&
-              (pathname === item.href || pathname.startsWith("/devices/"));
+              (item.href === "/"
+                ? pathname === "/" || pathname.startsWith("/devices/")
+                : pathname === item.href || pathname.startsWith(`${item.href}/`));
 
             if (!item.enabled) {
               return (

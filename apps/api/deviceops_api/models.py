@@ -1,4 +1,4 @@
-"""Database models for users, devices, telemetry, and operator commands."""
+"""Database models for users, devices, telemetry, commands, and fleet events."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -57,6 +58,56 @@ class Device(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DeviceEvent(Base):
+    __tablename__ = "device_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('device_registered', 'device_online', "
+            "'device_offline', 'command_issued', 'command_succeeded', "
+            "'command_failed')",
+            name="ck_device_events_type",
+        ),
+        CheckConstraint(
+            "severity IN ('info', 'success', 'warning', 'error')",
+            name="ck_device_events_severity",
+        ),
+        Index(
+            "ix_device_events_owner_occurred_at",
+            "owner_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_device_events_device_occurred_at",
+            "device_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_device_events_owner_type_occurred_at",
+            "owner_id",
+            "event_type",
+            "occurred_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    device_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("devices.device_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    details: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
     )
 
 

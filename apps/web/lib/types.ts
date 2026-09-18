@@ -71,6 +71,25 @@ export interface CommandRequest {
   arguments: Record<string, unknown>;
 }
 
+export type EventType =
+  | "device_registered"
+  | "device_online"
+  | "device_offline"
+  | "command_issued"
+  | "command_succeeded"
+  | "command_failed";
+
+export type EventSeverity = "info" | "success" | "warning" | "error";
+
+export interface PersistedEvent {
+  id: number;
+  device_id: string;
+  event_type: EventType;
+  severity: EventSeverity;
+  occurred_at: string;
+  details: Record<string, unknown>;
+}
+
 export interface TelemetryEvent {
   type: "telemetry";
   device_id: string;
@@ -94,8 +113,15 @@ export interface CommandUpdateEvent {
   data: Omit<DeviceCommand, "device_id">;
 }
 
+export interface EventCreatedEvent {
+  type: "event_created";
+  received_at: string;
+  data: PersistedEvent;
+}
+
 export type DeviceOpsEvent =
   | TelemetryEvent
   | DeviceStatusEvent
-  | CommandUpdateEvent;
+  | CommandUpdateEvent
+  | EventCreatedEvent;
 export type LiveConnectionState = "connecting" | "live" | "reconnecting";

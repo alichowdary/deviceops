@@ -35,7 +35,9 @@ initial snapshot and history. New committed telemetry and device status events
 arrive through FastAPI's `/ws` endpoint and update the console in place. The
 device page also issues LED, reporting interval, and diagnostics commands and
 updates their persisted status from device acknowledgements. The explicit
-Refresh control remains available.
+Refresh control remains available. The `/events` page provides a persistent,
+owner-scoped activity feed for registration, connectivity transitions, and
+command lifecycle events without duplicating routine telemetry.
 
 ```powershell
 cd apps\web
@@ -179,6 +181,7 @@ Milestone 6 supports battery-powered simulators and battery-free environmental
 sensors through the same ingestion and console paths, and includes the verified
 ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
 device registration credentials, authenticated MQTT envelopes, and isolated
-realtime delivery. Automatic capability discovery, broker-level MQTT
-authentication and TLS, alerts, OTA updates, and cloud infrastructure remain
-future work.
+realtime delivery. Milestone 8 Phase 1 adds persistent fleet Events through REST,
+owner-isolated WebSockets, and the web console. Automatic capability discovery,
+broker-level MQTT authentication and TLS, Alerts, OTA updates, and cloud
+infrastructure remain future work.

@@ -7,6 +7,8 @@ import type {
   CommandType,
   DeviceOpsEvent,
   DeviceStatus,
+  EventSeverity,
+  EventType,
   LiveConnectionState,
 } from "@/lib/types";
 
@@ -34,6 +36,26 @@ function isCommandType(value: unknown): value is CommandType {
   );
 }
 
+function isEventType(value: unknown): value is EventType {
+  return (
+    value === "device_registered" ||
+    value === "device_online" ||
+    value === "device_offline" ||
+    value === "command_issued" ||
+    value === "command_succeeded" ||
+    value === "command_failed"
+  );
+}
+
+function isEventSeverity(value: unknown): value is EventSeverity {
+  return (
+    value === "info" ||
+    value === "success" ||
+    value === "warning" ||
+    value === "error"
+  );
+}
+
 function isNullableNumber(value: unknown): value is number | null {
   return value === null || typeof value === "number";
 }
@@ -46,14 +68,23 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
     return null;
   }
 
-  if (
-    !isRecord(event) ||
-    typeof event.device_id !== "string" ||
-    typeof event.received_at !== "string" ||
-    !isRecord(event.data)
-  ) {
+  if (!isRecord(event) || typeof event.received_at !== "string" || !isRecord(event.data)) {
     return null;
   }
+
+  if (
+    event.type === "event_created" &&
+    typeof event.data.id === "number" &&
+    typeof event.data.device_id === "string" &&
+    isEventType(event.data.event_type) &&
+    isEventSeverity(event.data.severity) &&
+    typeof event.data.occurred_at === "string" &&
+    isRecord(event.data.details)
+  ) {
+    return event as unknown as DeviceOpsEvent;
+  }
+
+  if (typeof event.device_id !== "string") return null;
 
   if (event.type === "device_status" && isDeviceStatus(event.data.status)) {
     return event as unknown as DeviceOpsEvent;

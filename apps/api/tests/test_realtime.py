@@ -67,7 +67,12 @@ class HubTests(unittest.IsolatedAsyncioTestCase):
         owner_one, owner_two = FakeWebSocket(), FakeWebSocket()
         await self.hub.connect(owner_one, 1)
         await self.hub.connect(owner_two, 2)
-        for event_type in ("telemetry", "device_status", "command_update"):
+        for event_type in (
+            "telemetry",
+            "device_status",
+            "command_update",
+            "event_created",
+        ):
             for owner_id in (1, 2):
                 with self.subTest(event_type=event_type, owner_id=owner_id):
                     event = {"type": event_type, "device_id": f"device-{owner_id}"}

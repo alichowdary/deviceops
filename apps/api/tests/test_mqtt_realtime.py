@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from deviceops_api.models import Device, DeviceCommand
+from deviceops_api.models import Device, DeviceCommand, DeviceEvent, Telemetry
 from deviceops_api.mqtt import MqttIngestor
 from deviceops_api.mqtt_auth import create_authenticated_envelope
 
@@ -39,7 +39,7 @@ class MqttRealtimeTests(unittest.TestCase):
         )
         self.session = MagicMock()
         self.session.get.side_effect = self.get_row
-        self.session.flush.side_effect = self.assign_telemetry_id
+        self.session.flush.side_effect = self.assign_database_ids
         self.committed = False
 
     def get_row(self, model, identifier):
@@ -49,8 +49,13 @@ class MqttRealtimeTests(unittest.TestCase):
             return self.command
         return None
 
-    def assign_telemetry_id(self):
-        self.session.add.call_args.args[0].id = 101
+    def assign_database_ids(self, objects=None):
+        rows = objects or [self.session.add.call_args.args[0]]
+        for row in rows:
+            if isinstance(row, Telemetry):
+                row.id = 101
+            elif isinstance(row, DeviceEvent):
+                row.id = 202
 
     @contextmanager
     def transaction(self, fail_commit=False):
@@ -100,15 +105,13 @@ class MqttRealtimeTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.session.reset_mock()
 
+                publications = []
+
                 def check_publication(owner_id, event):
                     self.assertTrue(self.committed)
                     self.assertEqual(owner_id, self.device.owner_id)
-                    self.assertEqual(event["type"], event_type)
-                    self.assertEqual(event["device_id"], self.device.device_id)
-                    self.assertEqual(
-                        set(event), {"type", "device_id", "received_at", "data"}
-                    )
                     self.assertNotIn("owner_id", json.dumps(event))
+                    publications.append(event)
 
                 with (
                     patch("deviceops_api.mqtt.SessionLocal") as factory,
@@ -117,7 +120,23 @@ class MqttRealtimeTests(unittest.TestCase):
                     factory.begin.return_value = self.transaction()
                     hub.publish_from_thread.side_effect = check_publication
                     self.ingestor._process_message(*self.signed_message(kind))
-                    hub.publish_from_thread.assert_called_once()
+                    self.assertEqual(publications[0]["type"], event_type)
+                    self.assertEqual(
+                        publications[0]["device_id"], self.device.device_id
+                    )
+                    self.assertEqual(
+                        set(publications[0]),
+                        {"type", "device_id", "received_at", "data"},
+                    )
+                    if kind == "telemetry":
+                        self.assertEqual(len(publications), 1)
+                    else:
+                        self.assertEqual(len(publications), 2)
+                        self.assertEqual(publications[1]["type"], "event_created")
+                        self.assertEqual(
+                            publications[1]["data"]["device_id"],
+                            self.device.device_id,
+                        )
                     device_lookups = [
                         call for call in self.session.get.call_args_list
                         if call.args[0] is Device

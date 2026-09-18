@@ -62,7 +62,7 @@ class RealtimeHub:
         logger.info("WebSocket client disconnected; clients=%s", len(self._connections))
 
     def publish_from_thread(self, owner_id: int | None, event: LiveEvent) -> None:
-        """Schedule a committed MQTT event from Paho's thread onto asyncio."""
+        """Schedule a committed owner event onto the asyncio broadcast queue."""
         if type(owner_id) is not int or owner_id < 1:
             logger.warning("Dropped live event without a valid device owner")
             return

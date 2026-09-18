@@ -11,11 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_database_session
+from ..events import create_device_event, event_created_message
 from ..models import DeviceCommand, User
 from ..mqtt import MqttPublishError, mqtt_ingestor
 from ..ownership import get_owned_device_or_404
 from ..schemas import CommandCreate, CommandRead
 from ..security import get_current_user
+from ..realtime import realtime_hub
 
 
 router = APIRouter(prefix="/api/devices", tags=["commands"])
@@ -46,7 +48,24 @@ def create_device_command(
         issued_at=issued_at,
     )
     session.add(command)
+    session.flush()
+    event = create_device_event(
+        session,
+        owner_id=current_user.id,
+        device_id=device_id,
+        event_type="command_issued",
+        occurred_at=issued_at,
+        details={
+            "command_id": command.command_id,
+            "command_type": command.command_type,
+            "arguments": command.arguments,
+        },
+    )
     session.commit()
+
+    realtime_hub.publish_from_thread(
+        current_user.id, event_created_message(event)
+    )
 
     try:
         mqtt_ingestor.publish_command(command)
