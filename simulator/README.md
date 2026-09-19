@@ -2,7 +2,8 @@
 
 This small Python process behaves like one registered DeviceOps device. It
 connects to Mosquitto, publishes authenticated, gradually changing telemetry,
-and maintains an authenticated retained online/offline status. It also verifies
+maintains an authenticated retained online/offline status, and publishes an
+authenticated retained capability manifest after each connection. It also verifies
 and executes the three version 1 commands documented in
 [`../contracts/mqtt.md`](../contracts/mqtt.md).
 
@@ -69,6 +70,11 @@ and uses it for its Last Will, status, telemetry, acknowledgements, and command
 verification. Automatic reconnects within that process keep the same session ID;
 restarting the simulator creates a new one.
 
+Its capability manifest declares the telemetry it actually emits: temperature,
+battery, RSSI, and uptime. It declares LED, reporting-interval, and diagnostics
+commands, uses QoS 1 with retention, and is re-signed with the current session
+and a fresh UTC `sent_at` after every successful command-topic subscription.
+
 Press Ctrl+C for a clean shutdown. The simulator publishes an authenticated,
 retained `offline` envelope before disconnecting. If the process or network
 connection disappears without a clean disconnect, its authenticated MQTT Last
@@ -84,4 +90,5 @@ These commands use the MQTT tools inside the existing Mosquitto container:
 ```powershell
 docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -p 1883 -t "deviceops/v1/devices/+/telemetry" -v
 docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -p 1883 -t "deviceops/v1/devices/+/status" -v
+docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -p 1883 -t "deviceops/v1/devices/+/capabilities" -v
 ```

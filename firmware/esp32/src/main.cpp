@@ -19,7 +19,7 @@ namespace {
 
 constexpr uint16_t MQTT_PORT = 1883;
 constexpr size_t TOPIC_BUFFER_SIZE = 128;
-constexpr size_t MQTT_BUFFER_SIZE = 1536;
+constexpr size_t MQTT_BUFFER_SIZE = 3072;
 
 constexpr uint8_t I2C_SDA = 8;
 constexpr uint8_t I2C_SCL = 9;
@@ -40,6 +40,7 @@ char statusTopic[TOPIC_BUFFER_SIZE];
 char telemetryTopic[TOPIC_BUFFER_SIZE];
 char commandTopic[TOPIC_BUFFER_SIZE];
 char commandAckTopic[TOPIC_BUFFER_SIZE];
+char capabilitiesTopic[TOPIC_BUFFER_SIZE];
 char bootSessionId[mqtt_auth::SESSION_ID_HEX_SIZE + 1];
 uint8_t signingKey[mqtt_auth::SIGNING_KEY_SIZE];
 String offlineEnvelope;
@@ -158,6 +159,7 @@ bool initializeDeviceAuthentication() {
         !buildTopic(statusTopic, sizeof(statusTopic), "status") ||
         !buildTopic(telemetryTopic, sizeof(telemetryTopic), "telemetry") ||
         !buildTopic(commandTopic, sizeof(commandTopic), "commands") ||
+        !buildTopic(capabilitiesTopic, sizeof(capabilitiesTopic), "capabilities") ||
         !buildTopic(
             commandAckTopic,
             sizeof(commandAckTopic),
@@ -545,6 +547,81 @@ void handleCommand(String& topic, String& payload) {
 }
 
 
+bool publishCapabilities() {
+    char timestamp[32];
+    if (!getUtcTimestamp(timestamp, sizeof(timestamp))) {
+        Serial.println("Cannot publish capabilities: UTC clock unavailable.");
+        return false;
+    }
+
+    JsonDocument document;
+    document["protocol_version"] = 1;
+    document["capabilities_version"] = 1;
+    document["device_id"] = DEVICE_ID;
+    document["sent_at"] = timestamp;
+
+    JsonObject telemetry = document["telemetry"].to<JsonObject>();
+    JsonObject temperature = telemetry["temperature_c"].to<JsonObject>();
+    temperature["type"] = "number";
+    temperature["label"] = "Temperature";
+    temperature["unit"] = "°C";
+    JsonObject humidity = telemetry["humidity_pct"].to<JsonObject>();
+    humidity["type"] = "number";
+    humidity["label"] = "Humidity";
+    humidity["unit"] = "%";
+    JsonObject pressure = telemetry["pressure_hpa"].to<JsonObject>();
+    pressure["type"] = "number";
+    pressure["label"] = "Pressure";
+    pressure["unit"] = "hPa";
+    JsonObject rssi = telemetry["rssi_dbm"].to<JsonObject>();
+    rssi["type"] = "integer";
+    rssi["label"] = "RSSI";
+    rssi["unit"] = "dBm";
+    JsonObject uptime = telemetry["uptime_s"].to<JsonObject>();
+    uptime["type"] = "integer";
+    uptime["label"] = "Uptime";
+    uptime["unit"] = "s";
+
+    JsonObject commands = document["commands"].to<JsonObject>();
+    JsonObject setLed = commands["set_led"].to<JsonObject>();
+    setLed["label"] = "LED";
+    JsonObject ledArguments = setLed["arguments"].to<JsonObject>();
+    JsonObject on = ledArguments["on"].to<JsonObject>();
+    on["type"] = "boolean";
+    on["label"] = "On";
+
+    JsonObject setInterval =
+        commands["set_reporting_interval"].to<JsonObject>();
+    setInterval["label"] = "Reporting interval";
+    JsonObject intervalArguments =
+        setInterval["arguments"].to<JsonObject>();
+    JsonObject interval = intervalArguments["interval_s"].to<JsonObject>();
+    interval["type"] = "integer";
+    interval["label"] = "Interval";
+    interval["unit"] = "s";
+    interval["min"] = MIN_TELEMETRY_INTERVAL_S;
+    interval["max"] = MAX_TELEMETRY_INTERVAL_S;
+
+    JsonObject diagnostics =
+        commands["request_diagnostics"].to<JsonObject>();
+    diagnostics["label"] = "Request diagnostics";
+    diagnostics["arguments"].to<JsonObject>();
+
+    String body;
+    body.reserve(1400);
+    if (serializeJson(document, body) == 0) {
+        Serial.println("Capabilities JSON serialization failed.");
+        return false;
+    }
+    if (!publishAuthenticated(capabilitiesTopic, body, true, 1)) {
+        Serial.println("Capabilities MQTT publish failed.");
+        return false;
+    }
+    Serial.println("Published retained device capabilities.");
+    return true;
+}
+
+
 void connectMqtt() {
     Serial.print("Connecting to MQTT");
 
@@ -558,6 +635,7 @@ void connectMqtt() {
 
                 if (publishAuthenticated(statusTopic, "online", true, 1)) {
                     Serial.println("Published retained ONLINE status.");
+                    publishCapabilities();
                 } else {
                     Serial.println("Failed to publish ONLINE status.");
                 }

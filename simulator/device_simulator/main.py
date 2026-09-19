@@ -107,6 +107,62 @@ def _validate_utc_timestamp(value: object, field_name: str) -> None:
         raise ValueError(f"{field_name} must include a UTC offset")
 
 
+def build_capability_manifest(device_id_value: str) -> dict[str, Any]:
+    """Return the simulator's protocol-v1 capability declaration."""
+    return {
+        "protocol_version": 1,
+        "capabilities_version": 1,
+        "device_id": device_id_value,
+        "sent_at": _utc_timestamp(),
+        "telemetry": {
+            "temperature_c": {
+                "type": "number",
+                "label": "Temperature",
+                "unit": "°C",
+            },
+            "battery_pct": {
+                "type": "number",
+                "label": "Battery",
+                "unit": "%",
+            },
+            "rssi_dbm": {
+                "type": "integer",
+                "label": "RSSI",
+                "unit": "dBm",
+            },
+            "uptime_s": {
+                "type": "integer",
+                "label": "Uptime",
+                "unit": "s",
+            },
+        },
+        "commands": {
+            "set_led": {
+                "label": "LED",
+                "arguments": {
+                    "on": {"type": "boolean", "label": "On"}
+                },
+            },
+            "set_reporting_interval": {
+                "label": "Reporting interval",
+                "arguments": {
+                    "interval_s": {
+                        "type": "number",
+                        "label": "Interval",
+                        "unit": "s",
+                        "min": 1,
+                        "max": 60,
+                    }
+                },
+            },
+            "request_diagnostics": {
+                "label": "Request diagnostics",
+                "arguments": {},
+            },
+        },
+    }
+
+
 def run(
     device_id_value: str,
     interval: float,
@@ -118,6 +174,7 @@ def run(
     status_topic = f"deviceops/v1/devices/{device_id_value}/status"
     command_topic = f"deviceops/v1/devices/{device_id_value}/commands"
     acknowledgement_topic = f"deviceops/v1/devices/{device_id_value}/command-acks"
+    capabilities_topic = f"deviceops/v1/devices/{device_id_value}/capabilities"
     connected = threading.Event()
     subscribed = threading.Event()
     connection_error: list[str] = []
@@ -152,6 +209,26 @@ def run(
         protocol=mqtt.MQTTv311,
     )
     client.will_set(status_topic, payload=offline_envelope, qos=1, retain=True)
+
+    def publish_capabilities(connected_client: mqtt.Client) -> None:
+        body = json.dumps(
+            build_capability_manifest(device_id_value),
+            separators=(",", ":"),
+        )
+        payload = create_authenticated_envelope(
+            body=body,
+            signing_key=signing_key,
+            direction="d2s",
+            topic=capabilities_topic,
+            session_id=session_id,
+        )
+        published = connected_client.publish(
+            capabilities_topic, payload, qos=1, retain=True
+        )
+        if published.rc != mqtt.MQTT_ERR_SUCCESS:
+            connection_error.append(
+                f"capabilities publish failed: {mqtt.error_string(published.rc)}"
+            )
 
     def publish_acknowledgement(
         command_id: str, status: str, result: dict[str, Any]
@@ -345,6 +422,8 @@ def run(
                 connection_error.append(
                     f"online status publish failed: {mqtt.error_string(online.rc)}"
                 )
+            else:
+                publish_capabilities(_client)
         subscribed.set()
 
     def on_message(
@@ -434,7 +513,7 @@ def run(
         return 1
 
     print(
-        f"Connected; status=online, interval={interval:g}s; "
+        f"Connected; status=online, capabilities=published, interval={interval:g}s; "
         f"subscribed to {command_topic} (QoS 1)",
         flush=True,
     )

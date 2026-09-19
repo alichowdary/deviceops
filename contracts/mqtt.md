@@ -15,6 +15,7 @@ underscores, and hyphens; they must not contain `/`, `+`, or `#`.
 | --- | --- |
 | Telemetry | `deviceops/v1/devices/{device_id}/telemetry` |
 | Presence/status | `deviceops/v1/devices/{device_id}/status` |
+| Capabilities | `deviceops/v1/devices/{device_id}/capabilities` |
 | Commands | `deviceops/v1/devices/{device_id}/commands` |
 | Command acknowledgements | `deviceops/v1/devices/{device_id}/command-acks` |
 
@@ -49,7 +50,7 @@ never sent over MQTT.
 
 Each device process or boot uses a fresh, random 16-byte session ID encoded as 32
 lowercase hexadecimal characters. A valid signed `online` message establishes
-the backend's current session. Telemetry, acknowledgements, and `offline` are
+the backend's current session. Telemetry, capabilities, acknowledgements, and `offline` are
 accepted only for that session. Commands are signed for that same current
 session. This prevents a normally delayed Last Will from an older session from
 overwriting a newer online state. The Python simulator keeps one session ID for
@@ -131,12 +132,73 @@ WebSocket responses.
 
 Metrics stay under the `metrics` object so compatible sensors can be added
 without mixing measurements with message metadata. Additional numeric or
-structured measurements remain accepted and are stored in `additional_metrics`;
-version 1 does not define a dynamic metric-definition system.
+structured measurements remain accepted and are stored in `additional_metrics`.
+The additive capability manifest below now supplies the version 1 dynamic metric
+definitions; it does not change the telemetry payload or topic.
 
 Telemetry uses QoS 0 and is not retained. It is frequent, and a later reading
 supersedes a missed individual reading, so broker acknowledgement and retry are
 not required for every sample.
+
+## Device capabilities
+
+A device publishes its latest manifest to
+`deviceops/v1/devices/{device_id}/capabilities` with QoS 1 and `retain=true`.
+The body uses the normal authenticated `d2s` envelope and the current boot or
+process session. A device republishes after each successful connection or
+reconnection, after its signed `online` status establishes that session. FastAPI
+accepts a retained delivery after restart only when its signature and session
+match the device's current session; an older retained session cannot overwrite
+the latest stored manifest.
+
+```json
+{
+  "protocol_version": 1,
+  "capabilities_version": 1,
+  "device_id": "dev-example",
+  "sent_at": "2026-09-19T12:00:00Z",
+  "telemetry": {
+    "temperature_c": {
+      "type": "number",
+      "label": "Temperature",
+      "unit": "°C"
+    },
+    "uptime_s": {
+      "type": "integer",
+      "label": "Uptime",
+      "unit": "s"
+    }
+  },
+  "commands": {
+    "set_led": {
+      "label": "LED",
+      "arguments": {
+        "on": { "type": "boolean", "label": "On" }
+      }
+    }
+  }
+}
+```
+
+Both `protocol_version` and `capabilities_version` must be `1`; `device_id`
+must match the topic; and `sent_at` must be UTC. `telemetry` and `commands` are
+objects. Metric and argument names use lowercase safe identifiers beginning
+with a letter and containing only letters, digits, and underscores. Labels are
+1–80 characters and optional units are 1–24 characters. Supported value types
+are `number`, `integer`, `boolean`, and `string`. Numeric command arguments may
+include finite `min` and `max` values, with `min <= max`; integer descriptors
+require integer bounds, and nonnumeric descriptors cannot have bounds. The
+manifest body is limited to 16 KiB, 128 telemetry definitions, and 16 arguments
+per command.
+
+Version 1 command capabilities may be any subset of `set_led`,
+`set_reporting_interval`, and `request_diagnostics`, using their existing
+protocol-v1 argument shapes. This declaration does not enable arbitrary command
+execution. Telemetry may declare the first-class metrics above or additional
+safe names stored by ingestion in `additional_metrics`.
+
+`device_id` remains the stable protocol identity. A future human-friendly
+display name would be separate metadata and must not replace it.
 
 ## Presence/status
 

@@ -124,6 +124,19 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
 
   if (typeof event.device_id !== "string") return null;
 
+  if (
+    event.type === "capabilities_updated" &&
+    isRecord(event.data.capabilities) &&
+    event.data.capabilities.protocol_version === 1 &&
+    event.data.capabilities.capabilities_version === 1 &&
+    event.data.capabilities.device_id === event.device_id &&
+    typeof event.data.capabilities.sent_at === "string" &&
+    isRecord(event.data.capabilities.telemetry) &&
+    isRecord(event.data.capabilities.commands)
+  ) {
+    return event as unknown as DeviceOpsEvent;
+  }
+
   if (event.type === "device_status" && isDeviceStatus(event.data.status)) {
     return event as unknown as DeviceOpsEvent;
   }

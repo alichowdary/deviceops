@@ -208,10 +208,45 @@ export interface AlertUpdateEvent {
   data: Alert;
 }
 
+export type CapabilityValueType = "number" | "integer" | "boolean" | "string";
+
+export interface CapabilityValueDescriptor {
+  type: CapabilityValueType;
+  label: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+}
+
+export interface CapabilityManifest {
+  protocol_version: 1;
+  capabilities_version: 1;
+  device_id: string;
+  sent_at: string;
+  telemetry: Record<string, CapabilityValueDescriptor>;
+  commands: Partial<
+    Record<
+      CommandType,
+      {
+        label: string;
+        arguments: Record<string, CapabilityValueDescriptor>;
+      }
+    >
+  >;
+}
+
+export interface CapabilitiesUpdatedEvent {
+  type: "capabilities_updated";
+  device_id: string;
+  received_at: string;
+  data: { capabilities: CapabilityManifest };
+}
+
 export type DeviceOpsEvent =
   | TelemetryEvent
   | DeviceStatusEvent
   | CommandUpdateEvent
   | EventCreatedEvent
-  | AlertUpdateEvent;
+  | AlertUpdateEvent
+  | CapabilitiesUpdatedEvent;
 export type LiveConnectionState = "connecting" | "live" | "reconnecting";

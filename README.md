@@ -9,7 +9,9 @@ authentication, per-user device ownership, one-time device registration
 credentials, authenticated device messages, and owner-isolated live updates.
 Milestone 8 adds a persistent fleet activity feed, owner-scoped alert rules, and
 durable active/resolved alert lifecycles evaluated from committed telemetry and
-device status.
+device status. Milestone 9 Phase 1 adds signed, retained device capability
+manifests, latest-manifest persistence, an owner-scoped REST read, and realtime
+update compatibility. Dynamic capability-driven rendering is not implemented yet.
 
 The implemented flow is:
 
@@ -55,7 +57,8 @@ npm run dev
 
 The version 1 MQTT topic and payload contract is in
 [`contracts/mqtt.md`](contracts/mqtt.md). It defines telemetry, retained device
-presence, commands, acknowledgements, and their delivery semantics.
+presence, capability discovery, commands, acknowledgements, and their delivery
+semantics.
 
 Installation, run, and observation instructions for the Python simulator are in
 [`simulator/README.md`](simulator/README.md). Register a device through the API or
@@ -189,6 +192,7 @@ ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
 device registration credentials, authenticated MQTT envelopes, and isolated
 realtime delivery. Milestone 8 adds persistent fleet Events, alert-rule
 management, and automatic active/resolved alert lifecycles through REST and
-owner-isolated WebSockets. External alert notification delivery is not
-implemented. Automatic capability discovery, broker-level MQTT authentication
-and TLS, OTA updates, and cloud infrastructure remain future work.
+owner-isolated WebSockets. Milestone 9 Phase 1 adds authenticated capability
+discovery without changing the current static device-detail UI. External alert
+notification delivery, broker-level MQTT authentication and TLS, OTA updates,
+and cloud infrastructure remain future work.

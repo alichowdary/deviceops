@@ -85,7 +85,11 @@ export default function FleetPage() {
   }, []);
 
   const handleLiveEvent = useCallback((event: DeviceOpsEvent) => {
-    if (event.type === "event_created" || event.type === "alert_update") return;
+    if (
+      event.type === "event_created" ||
+      event.type === "alert_update" ||
+      event.type === "capabilities_updated"
+    ) return;
     setState((current) => {
       if (current.devices === null) return current;
 

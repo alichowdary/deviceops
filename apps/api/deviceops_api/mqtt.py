@@ -29,7 +29,7 @@ from .mqtt_auth import (
     verify_authenticated_envelope,
 )
 from .realtime import realtime_hub
-from .schemas import CommandAckPayload, TelemetryPayload
+from .schemas import CapabilityManifest, CommandAckPayload, TelemetryPayload
 
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,11 @@ logger = logging.getLogger(__name__)
 TELEMETRY_SUBSCRIPTION = "deviceops/v1/devices/+/telemetry"
 STATUS_SUBSCRIPTION = "deviceops/v1/devices/+/status"
 COMMAND_ACK_SUBSCRIPTION = "deviceops/v1/devices/+/command-acks"
+CAPABILITIES_SUBSCRIPTION = "deviceops/v1/devices/+/capabilities"
+MAX_CAPABILITY_BODY_BYTES = 16_384
 TOPIC_PATTERN = re.compile(
     r"^deviceops/v1/devices/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/"
-    r"(telemetry|status|command-acks)$"
+    r"(telemetry|status|command-acks|capabilities)$"
 )
 
 
@@ -181,6 +183,7 @@ class MqttIngestor:
                 (TELEMETRY_SUBSCRIPTION, 0),
                 (STATUS_SUBSCRIPTION, 1),
                 (COMMAND_ACK_SUBSCRIPTION, 1),
+                (CAPABILITIES_SUBSCRIPTION, 1),
             ]
         )
         if result != mqtt.MQTT_ERR_SUCCESS:
@@ -192,10 +195,11 @@ class MqttIngestor:
         self._connected = True
         self._last_error = None
         logger.info(
-            "MQTT connected; subscribed to %s, %s, and %s",
+            "MQTT connected; subscribed to %s, %s, %s, and %s",
             TELEMETRY_SUBSCRIPTION,
             STATUS_SUBSCRIPTION,
             COMMAND_ACK_SUBSCRIPTION,
+            CAPABILITIES_SUBSCRIPTION,
         )
 
     def _on_connect_fail(self, _client: mqtt.Client, _userdata: object) -> None:
@@ -252,6 +256,10 @@ class MqttIngestor:
             self._process_telemetry(topic_device_id, topic, envelope, received_at)
         elif message_kind == "status":
             self._process_status(topic_device_id, topic, envelope, received_at)
+        elif message_kind == "capabilities":
+            self._process_capabilities(
+                topic_device_id, topic, envelope, received_at
+            )
         else:
             self._process_command_ack(topic_device_id, topic, envelope, received_at)
 
@@ -302,6 +310,80 @@ class MqttIngestor:
             )
             return None
         return device
+
+    def _process_capabilities(
+        self,
+        topic_device_id: str,
+        topic: str,
+        envelope: AuthenticatedMqttEnvelope,
+        received_at: datetime,
+    ) -> None:
+        try:
+            with SessionLocal.begin() as session:
+                device = self._authenticate_device_envelope(
+                    session,
+                    topic_device_id,
+                    topic,
+                    envelope,
+                )
+                if device is None:
+                    return
+                if device.mqtt_session_id != envelope.session_id:
+                    logger.warning(
+                        "Rejected capabilities with stale MQTT session: device=%s",
+                        topic_device_id,
+                    )
+                    return
+                if len(envelope.body.encode("utf-8")) > MAX_CAPABILITY_BODY_BYTES:
+                    logger.warning(
+                        "Rejected oversized capabilities manifest: device=%s",
+                        topic_device_id,
+                    )
+                    return
+
+                try:
+                    payload = CapabilityManifest.model_validate_json(envelope.body)
+                except ValidationError as exc:
+                    logger.warning(
+                        "Rejected malformed capabilities for device %s: %s",
+                        topic_device_id,
+                        exc.errors(include_url=False, include_input=False),
+                    )
+                    return
+
+                if payload.device_id != topic_device_id:
+                    logger.warning(
+                        "Rejected capabilities device ID mismatch: topic=%s payload=%s",
+                        topic_device_id,
+                        payload.device_id,
+                    )
+                    return
+
+                capabilities = payload.model_dump(mode="json")
+                device.capabilities = capabilities
+                device.capabilities_updated_at = received_at
+                device.last_seen_at = received_at
+                owner_id = device.owner_id
+        except SQLAlchemyError:
+            logger.exception(
+                "Database write failed for capabilities from %s", topic_device_id
+            )
+            return
+
+        logger.info(
+            "Stored capabilities device=%s received_at=%s",
+            topic_device_id,
+            received_at.isoformat(),
+        )
+        realtime_hub.publish_from_thread(
+            owner_id,
+            {
+                "type": "capabilities_updated",
+                "device_id": topic_device_id,
+                "received_at": _utc_isoformat(received_at),
+                "data": {"capabilities": capabilities},
+            },
+        )
 
     def _process_telemetry(
         self,

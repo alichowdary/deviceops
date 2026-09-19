@@ -20,6 +20,7 @@ from ..events import create_device_event, event_created_message
 from ..models import Device, Telemetry, User
 from ..ownership import get_owned_device_or_404
 from ..schemas import (
+    CapabilityStateRead,
     DeviceRead,
     DeviceRegistrationCreate,
     DeviceRegistrationRead,
@@ -100,6 +101,20 @@ def get_device(
     device_id: str, session: DatabaseSession, current_user: CurrentUser
 ) -> Device:
     return get_owned_device_or_404(session, device_id, current_user.id)
+
+
+@router.get(
+    "/{device_id}/capabilities",
+    response_model=CapabilityStateRead,
+)
+def get_device_capabilities(
+    device_id: str, session: DatabaseSession, current_user: CurrentUser
+) -> CapabilityStateRead:
+    device = get_owned_device_or_404(session, device_id, current_user.id)
+    return CapabilityStateRead(
+        capabilities=device.capabilities,
+        updated_at=device.capabilities_updated_at,
+    )
 
 
 @router.get("/{device_id}/telemetry", response_model=list[TelemetryRead])

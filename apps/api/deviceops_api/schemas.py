@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import math
+import re
 from typing import Any, Literal
 
 from pydantic import (
@@ -19,6 +20,11 @@ from .events import EventSeverity, EventType
 
 
 DEVICE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+CAPABILITY_IDENTIFIER_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
+CAPABILITY_LABEL_MAX_LENGTH = 80
+CAPABILITY_UNIT_MAX_LENGTH = 24
+CAPABILITY_MAX_TELEMETRY = 128
+CAPABILITY_MAX_ARGUMENTS = 16
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 PASSWORD_MAX_LENGTH = 128
 ALERT_RULE_NAME_MAX_LENGTH = 100
@@ -159,6 +165,150 @@ class TelemetryPayload(BaseModel):
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise ValueError("sent_at must include a UTC offset")
         return value
+
+
+CapabilityValueType = Literal["number", "integer", "boolean", "string"]
+CapabilityCommandType = Literal[
+    "set_led", "set_reporting_interval", "request_diagnostics"
+]
+
+
+class TelemetryCapabilityDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: CapabilityValueType
+    label: str = Field(min_length=1, max_length=CAPABILITY_LABEL_MAX_LENGTH)
+    unit: str | None = Field(
+        default=None, min_length=1, max_length=CAPABILITY_UNIT_MAX_LENGTH
+    )
+
+
+class CommandArgumentCapabilityDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: CapabilityValueType
+    label: str = Field(min_length=1, max_length=CAPABILITY_LABEL_MAX_LENGTH)
+    unit: str | None = Field(
+        default=None, min_length=1, max_length=CAPABILITY_UNIT_MAX_LENGTH
+    )
+    min: int | float | None = None
+    max: int | float | None = None
+
+    @field_validator("min", "max", mode="before")
+    @classmethod
+    def bounds_must_be_finite_numbers(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("min and max must be finite numbers")
+        if not math.isfinite(value):
+            raise ValueError("min and max must be finite numbers")
+        return value
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "CommandArgumentCapabilityDescriptor":
+        if self.type not in {"number", "integer"} and (
+            self.min is not None or self.max is not None
+        ):
+            raise ValueError("min and max are only valid for numeric types")
+        if self.type == "integer" and any(
+            value is not None and not isinstance(value, int)
+            for value in (self.min, self.max)
+        ):
+            raise ValueError("integer bounds must be integers")
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError("min must be less than or equal to max")
+        return self
+
+
+class CommandCapabilityDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=CAPABILITY_LABEL_MAX_LENGTH)
+    arguments: dict[str, CommandArgumentCapabilityDescriptor]
+
+    @field_validator("arguments")
+    @classmethod
+    def validate_arguments(
+        cls, value: dict[str, CommandArgumentCapabilityDescriptor]
+    ) -> dict[str, CommandArgumentCapabilityDescriptor]:
+        if len(value) > CAPABILITY_MAX_ARGUMENTS:
+            raise ValueError("too many command arguments")
+        for name in value:
+            if re.fullmatch(CAPABILITY_IDENTIFIER_PATTERN, name) is None:
+                raise ValueError(f"invalid command argument identifier: {name}")
+        return value
+
+
+class CapabilityManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocol_version: Literal[1]
+    capabilities_version: Literal[1]
+    device_id: str = Field(pattern=DEVICE_ID_PATTERN, max_length=64)
+    sent_at: datetime
+    telemetry: dict[str, TelemetryCapabilityDescriptor]
+    commands: dict[CapabilityCommandType, CommandCapabilityDescriptor]
+
+    @field_validator("protocol_version", "capabilities_version", mode="before")
+    @classmethod
+    def versions_must_be_integer_one(cls, value: object) -> object:
+        if type(value) is not int or value != 1:
+            raise ValueError("version must be integer 1")
+        return value
+
+    @field_validator("sent_at", mode="before")
+    @classmethod
+    def sent_at_must_be_a_string(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("sent_at must be a UTC timestamp string")
+        return value
+
+    @field_validator("sent_at")
+    @classmethod
+    def sent_at_must_be_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("sent_at must include a UTC offset")
+        return value
+
+    @field_validator("telemetry")
+    @classmethod
+    def validate_telemetry_identifiers(
+        cls, value: dict[str, TelemetryCapabilityDescriptor]
+    ) -> dict[str, TelemetryCapabilityDescriptor]:
+        if len(value) > CAPABILITY_MAX_TELEMETRY:
+            raise ValueError("too many telemetry capabilities")
+        for name in value:
+            if re.fullmatch(CAPABILITY_IDENTIFIER_PATTERN, name) is None:
+                raise ValueError(f"invalid telemetry capability identifier: {name}")
+        return value
+
+    @model_validator(mode="after")
+    def validate_command_shapes(self) -> "CapabilityManifest":
+        expected_arguments: dict[
+            CapabilityCommandType, dict[str, set[CapabilityValueType]]
+        ] = {
+            "set_led": {"on": {"boolean"}},
+            "set_reporting_interval": {
+                "interval_s": {"number", "integer"}
+            },
+            "request_diagnostics": {},
+        }
+        for command_name, descriptor in self.commands.items():
+            expected = expected_arguments[command_name]
+            if set(descriptor.arguments) != set(expected) or any(
+                descriptor.arguments[name].type not in allowed_types
+                for name, allowed_types in expected.items()
+            ):
+                raise ValueError(
+                    f"{command_name} arguments do not match protocol version 1"
+                )
+        return self
+
+
+class CapabilityStateRead(BaseModel):
+    capabilities: CapabilityManifest | None
+    updated_at: datetime | None
 
 
 class DeviceRead(BaseModel):

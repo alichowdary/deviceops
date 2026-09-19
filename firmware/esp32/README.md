@@ -64,6 +64,9 @@ The firmware:
 - creates one random session ID per boot and retains it across MQTT reconnects;
 - publishes signed, retained QoS 1 `online`/`offline` presence with a signed MQTT
   Last Will;
+- publishes a signed, retained QoS 1 capability manifest after every MQTT
+  connection, declaring temperature, humidity, pressure, RSSI, uptime, LED,
+  reporting-interval, and diagnostics support (and deliberately no battery);
 - publishes temperature, humidity, pressure, RSSI, and uptime telemetry with
   signed QoS 0 messages and no retention;
 - verifies the session and HMAC before handling `set_led`,

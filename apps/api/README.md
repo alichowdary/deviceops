@@ -1,7 +1,8 @@
 # DeviceOps API
 
 The backend runs FastAPI and owns the MQTT subscriber. It validates version 1
-device messages, stores device state, telemetry, command history, and meaningful
+device messages, stores device state, latest capability manifests, telemetry,
+command history, and meaningful
 fleet activity in PostgreSQL, publishes validated operator commands, and
 broadcasts newly committed updates at `/ws`.
 
@@ -74,6 +75,7 @@ $headers = @{ Authorization = "Bearer <access-token>" }
 Invoke-RestMethod -Headers $headers http://127.0.0.1:8000/api/devices
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/telemetry?limit=100"
+Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/capabilities"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/commands?limit=20"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/events?limit=100"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alert-rules"
@@ -83,6 +85,23 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alerts?limit=100"
 Telemetry is returned oldest-to-newest within the requested recent window. The
 default limit is 100 and the maximum is 500. Unknown devices return HTTP 404.
 Interactive OpenAPI documentation is at <http://127.0.0.1:8000/docs>.
+
+## Device capabilities
+
+The MQTT subscriber validates signed manifests from the retained QoS 1
+`deviceops/v1/devices/{device_id}/capabilities` topic. A manifest must use the
+current device session, match the topic device ID, stay within the protocol's
+bounded schema, and advertise only the three existing command types. The latest
+validated JSON is stored on `devices.capabilities`; server receipt time is stored
+in `devices.capabilities_updated_at`. Republishing replaces the previous value
+and does not create fleet Event history.
+
+`GET /api/devices/{device_id}/capabilities` uses the existing owner-scoped 404
+privacy boundary. A registered device that has never advertised returns
+`{"capabilities":null,"updated_at":null}`. Accepted updates are broadcast on the
+existing authenticated WebSocket as `capabilities_updated`, without `owner_id`.
+The frontend currently recognizes and safely ignores this delta; dynamic device
+detail rendering belongs to the next phase.
 
 ## Persistent fleet events
 
@@ -210,7 +229,7 @@ after a database compromise. Secret encryption or asymmetric device identities
 are outside this checkpoint.
 
 Authenticated `online` establishes the current device session. Telemetry,
-acknowledgements, and `offline` must use that session; this prevents a stale Last
+capabilities, acknowledgements, and `offline` must use that session; this prevents a stale Last
 Will from an older connection from marking a newer session offline. Registered,
 owned devices with valid credentials are accepted. Unknown, unowned, unsigned,
 malformed, or incorrectly signed messages are rejected without changing data.
