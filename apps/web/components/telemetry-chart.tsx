@@ -11,41 +11,50 @@ import {
 } from "recharts";
 
 import { formatChartTime, formatExactTime } from "@/lib/format";
-import type { Telemetry } from "@/lib/types";
-
-type NumericTelemetryKey =
-  | "temperature_c"
-  | "battery_pct"
-  | "humidity_pct"
-  | "pressure_hpa"
-  | "rssi_dbm";
+import {
+  getTelemetryMetricValue,
+  isTelemetryMetricValueCompatible,
+} from "@/lib/telemetry-metrics";
+import type { CapabilityValueDescriptor, Telemetry } from "@/lib/types";
 
 export function TelemetryChart({
   data,
-  dataKey,
+  descriptor,
+  metricName,
   label,
-  unit,
   color,
-  decimals = 1,
-  domain,
 }: {
   data: Telemetry[];
-  dataKey: NumericTelemetryKey;
+  descriptor: CapabilityValueDescriptor;
+  metricName: string;
   label: string;
-  unit: string;
   color: string;
-  decimals?: number;
-  domain?: [number | "auto", number | "auto"];
 }) {
+  const points = data.flatMap((sample) => {
+    const value = getTelemetryMetricValue(sample, metricName);
+    return typeof value === "number" &&
+      isTelemetryMetricValueCompatible(descriptor, value)
+      ? [{ received_at: sample.received_at, value }]
+      : [];
+  });
+  if (points.length === 0) return null;
+
+  const decimals = descriptor.type === "integer" ? 0 : 2;
+  const domain: [number | "auto", number | "auto"] =
+    metricName === "battery_pct" || metricName === "humidity_pct"
+      ? [0, 100]
+      : ["auto", "auto"];
+  const unitSuffix = descriptor.unit ? ` ${descriptor.unit}` : "";
+
   return (
     <section className="chart-panel">
       <div className="chart-heading">
         <span className="chart-title">{label}</span>
-        <span className="chart-unit">{unit}</span>
+        <span className="chart-unit">{descriptor.unit ?? descriptor.type}</span>
       </div>
       <div className="chart-canvas">
         <ResponsiveContainer height="100%" width="100%">
-          <LineChart data={data} margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
+          <LineChart data={points} margin={{ top: 16, right: 12, bottom: 2, left: 0 }}>
             <CartesianGrid stroke="#273039" strokeDasharray="2 4" vertical={false} />
             <XAxis
               axisLine={{ stroke: "#35414d" }}
@@ -57,7 +66,7 @@ export function TelemetryChart({
             />
             <YAxis
               axisLine={false}
-              domain={domain ?? ["auto", "auto"]}
+              domain={domain}
               tick={{ fill: "#69757f", fontSize: 9 }}
               tickLine={false}
               width={42}
@@ -71,14 +80,14 @@ export function TelemetryChart({
                 fontSize: 11,
               }}
               formatter={(value) => [
-                `${Number(value).toFixed(decimals)} ${unit}`,
+                `${Number(value).toFixed(decimals)}${unitSuffix}`,
                 label,
               ]}
               labelFormatter={(value) => formatExactTime(String(value))}
             />
             <Line
               activeDot={{ r: 3, strokeWidth: 0 }}
-              dataKey={dataKey}
+              dataKey="value"
               dot={false}
               isAnimationActive={false}
               stroke={color}

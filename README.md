@@ -11,7 +11,9 @@ Milestone 8 adds a persistent fleet activity feed, owner-scoped alert rules, and
 durable active/resolved alert lifecycles evaluated from committed telemetry and
 device status. Milestone 9 Phase 1 adds signed, retained device capability
 manifests, latest-manifest persistence, an owner-scoped REST read, and realtime
-update compatibility. Dynamic capability-driven rendering is not implemented yet.
+update compatibility. Phase 2 makes Device Detail render its metric cards,
+numeric charts, recent-sample columns, and existing protocol-v1 controls from
+that manifest, including live capability changes.
 
 The implemented flow is:
 
@@ -38,9 +40,9 @@ device detail pages at `/devices/{deviceId}`. It shows real API state, latest
 telemetry, server-time history charts, and recent samples. REST supplies the
 initial snapshot and history. New committed telemetry and device status events
 arrive through FastAPI's `/ws` endpoint and update the console in place. The
-device page also issues LED, reporting interval, and diagnostics commands and
-updates their persisted status from device acknowledgements. The explicit
-Refresh control remains available. The `/events` page provides a persistent,
+device page renders only telemetry and existing command controls declared by the
+device manifest, and updates persisted command status from acknowledgements. The
+explicit Refresh control remains available. The `/events` page provides a persistent,
 owner-scoped activity feed for registration, connectivity transitions, and
 command lifecycle events without duplicating routine telemetry.
 The `/alerts` page shows active and recently resolved alerts alongside per-device
@@ -192,7 +194,8 @@ ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
 device registration credentials, authenticated MQTT envelopes, and isolated
 realtime delivery. Milestone 8 adds persistent fleet Events, alert-rule
 management, and automatic active/resolved alert lifecycles through REST and
-owner-isolated WebSockets. Milestone 9 Phase 1 adds authenticated capability
-discovery without changing the current static device-detail UI. External alert
+owner-isolated WebSockets. Milestone 9 adds authenticated capability discovery
+and a capability-driven Device Detail while retaining a read-only legacy sample
+view for devices that have not advertised a manifest. External alert
 notification delivery, broker-level MQTT authentication and TLS, OTA updates,
 and cloud infrastructure remain future work.

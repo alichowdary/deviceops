@@ -1,27 +1,24 @@
 "use client";
 
-import {
-  BatteryMedium,
-  ChevronRight,
-  Clock3,
-  Droplets,
-  Gauge,
-  Radio,
-  Thermometer,
-} from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth-provider";
-import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
+import { ApiError, apiGet, apiPost } from "@/lib/api";
 import {
   formatExactTime,
   formatRelativeTime,
-  formatUptime,
   isLaterTimestamp,
 } from "@/lib/format";
+import {
+  getTelemetryMetricValue,
+  isNumericCapability,
+  isTelemetryMetricValueCompatible,
+} from "@/lib/telemetry-metrics";
 import type {
+  CapabilityState,
   CommandRequest,
   Device,
   DeviceCommand,
@@ -30,8 +27,8 @@ import type {
 } from "@/lib/types";
 
 import { DeviceControl } from "./device-control";
+import { DeviceMetricSummary } from "./device-metric-summary";
 import { LiveConnectionIndicator } from "./live-connection-indicator";
-import { MetricValue } from "./metric-value";
 import { RecentCommands } from "./recent-commands";
 import { RecentTelemetryTable } from "./recent-telemetry-table";
 import { RefreshButton } from "./refresh-button";
@@ -43,6 +40,7 @@ interface DeviceState {
   device: Device | null;
   telemetry: Telemetry[] | null;
   commands: DeviceCommand[] | null;
+  capabilityState: CapabilityState | null;
   loading: boolean;
   error: string | null;
   notFound: boolean;
@@ -52,12 +50,21 @@ const initialState: DeviceState = {
   device: null,
   telemetry: null,
   commands: null,
+  capabilityState: null,
   loading: true,
   error: null,
   notFound: false,
 };
 
 const RECENT_COMMAND_LIMIT = 10;
+const CHART_COLORS = [
+  "#70b7ff",
+  "#4dcb8a",
+  "#53c7c1",
+  "#e1ad62",
+  "#c295e8",
+  "#ef8f8f",
+];
 
 function mergeTelemetrySnapshots(
   snapshot: Telemetry[],
@@ -69,7 +76,8 @@ function mergeTelemetrySnapshots(
   return [...samples.values()]
     .sort(
       (left, right) =>
-        new Date(left.received_at).getTime() - new Date(right.received_at).getTime(),
+        new Date(left.received_at).getTime() -
+        new Date(right.received_at).getTime(),
     )
     .slice(-100);
 }
@@ -83,16 +91,31 @@ function mergeCommandSnapshots(
   );
   for (const candidate of snapshot) {
     const existing = commands.get(candidate.command_id);
-    if (!existing || existing.status === "pending" || candidate.status !== "pending") {
+    if (
+      !existing ||
+      existing.status === "pending" ||
+      candidate.status !== "pending"
+    ) {
       commands.set(candidate.command_id, candidate);
     }
   }
   return [...commands.values()]
     .sort(
       (left, right) =>
-        new Date(right.issued_at).getTime() - new Date(left.issued_at).getTime(),
+        new Date(right.issued_at).getTime() -
+        new Date(left.issued_at).getTime(),
     )
     .slice(0, RECENT_COMMAND_LIMIT);
+}
+
+function mergeCapabilityState(
+  snapshot: CapabilityState,
+  current: CapabilityState | null,
+): CapabilityState {
+  if (current && isLaterTimestamp(current.updated_at, snapshot.updated_at)) {
+    return current;
+  }
+  return snapshot;
 }
 
 export function DeviceDetail({ deviceId }: { deviceId: string }) {
@@ -120,19 +143,24 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         `/api/devices/${encodedDeviceId}/commands?limit=${RECENT_COMMAND_LIMIT}`,
         requestOptions,
       ),
+      apiGet<CapabilityState>(
+        `/api/devices/${encodedDeviceId}/capabilities`,
+        requestOptions,
+      ),
     ])
-      .then(([device, telemetry, commands]) => {
+      .then(([device, telemetry, commands, capabilityState]) => {
         setState((current) => ({
           device:
             current.device &&
-            isLaterTimestamp(
-              current.device.last_seen_at,
-              device.last_seen_at,
-            )
+            isLaterTimestamp(current.device.last_seen_at, device.last_seen_at)
               ? current.device
               : device,
           telemetry: mergeTelemetrySnapshots(telemetry, current.telemetry),
           commands: mergeCommandSnapshots(commands, current.commands),
+          capabilityState: mergeCapabilityState(
+            capabilityState,
+            current.capabilityState,
+          ),
           loading: false,
           error: null,
           notFound: false,
@@ -143,7 +171,10 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         setState((current) => ({
           ...current,
           loading: false,
-          error: error instanceof Error ? error.message : "The device request failed.",
+          error:
+            error instanceof Error
+              ? error.message
+              : "The device request failed.",
           notFound: error instanceof ApiError && error.status === 404,
         }));
       });
@@ -158,15 +189,29 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
   const handleLiveEvent = useCallback(
     (event: DeviceOpsEvent) => {
-      if (
-        event.type === "event_created" ||
-        event.type === "alert_update" ||
-        event.type === "capabilities_updated"
-      ) return;
+      if (event.type === "event_created" || event.type === "alert_update") return;
       if (event.device_id !== deviceId) return;
 
       setState((current) => {
         if (current.device === null) return current;
+
+        if (event.type === "capabilities_updated") {
+          return {
+            ...current,
+            device: {
+              ...current.device,
+              first_seen_at: current.device.first_seen_at ?? event.received_at,
+              last_seen_at: event.received_at,
+            },
+            capabilityState: mergeCapabilityState(
+              {
+                capabilities: event.data.capabilities,
+                updated_at: event.received_at,
+              },
+              current.capabilityState,
+            ),
+          };
+        }
 
         if (event.type === "command_update") {
           const command: DeviceCommand = {
@@ -242,7 +287,11 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   if (state.notFound) {
     return (
       <StatePanel
-        action={<Link className="button button-secondary" href="/">Return to fleet</Link>}
+        action={
+          <Link className="button button-secondary" href="/">
+            Return to fleet
+          </Link>
+        }
         description={`No device with the stable ID “${deviceId}” exists in the backend.`}
         eyebrow="Unknown device"
         title="Device not found"
@@ -266,13 +315,27 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
   }
 
   const device = state.device;
+  if (!device) return null;
   const telemetry = state.telemetry ?? [];
   const commands = state.commands ?? [];
-  if (!device) return null;
+  const capabilities = state.capabilityState?.capabilities ?? null;
+  const capabilitiesUpdatedAt = state.capabilityState?.updated_at ?? null;
   const latest = telemetry.at(-1);
-  const hasBattery = telemetry.some((sample) => sample.battery_pct !== null);
-  const hasHumidity = telemetry.some((sample) => sample.humidity_pct !== null);
-  const hasPressure = telemetry.some((sample) => sample.pressure_hpa !== null);
+  const numericCapabilities = capabilities
+    ? Object.entries(capabilities.telemetry).filter(
+        ([metricName, descriptor]) =>
+          isNumericCapability(descriptor) &&
+          telemetry.some(
+            (sample) => {
+              const value = getTelemetryMetricValue(sample, metricName);
+              return (
+                typeof value === "number" &&
+                isTelemetryMetricValueCompatible(descriptor, value)
+              );
+            },
+          ),
+      )
+    : [];
 
   return (
     <>
@@ -288,7 +351,9 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             <h1 className="page-title mono">{device.device_id}</h1>
             <StatusBadge status={device.status} />
           </div>
-          <p className="page-description">Observed device state and persisted telemetry</p>
+          <p className="page-description">
+            Observed device state and persisted telemetry
+          </p>
         </div>
         <div className="page-actions">
           <LiveConnectionIndicator state={liveConnection} />
@@ -302,7 +367,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
         </div>
       ) : null}
 
-      <section aria-label="Device timestamps" className="detail-meta-grid">
+      <section aria-label="Device metadata" className="detail-meta-grid">
         <div className="detail-meta-item">
           <span className="detail-label">Stable identifier</span>
           <span className="detail-value mono">{device.device_id}</span>
@@ -333,120 +398,72 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
             )}
           </span>
         </div>
+        <div className="detail-meta-item">
+          <span className="detail-label">Capabilities</span>
+          <span
+            className="detail-value"
+            title={formatExactTime(capabilitiesUpdatedAt)}
+          >
+            {capabilities ? (
+              capabilitiesUpdatedAt ? (
+                <>
+                  Advertised · {formatRelativeTime(capabilitiesUpdatedAt)} ·{" "}
+                  <span className="mono">
+                    {formatExactTime(capabilitiesUpdatedAt)}
+                  </span>
+                </>
+              ) : (
+                "Advertised"
+              )
+            ) : (
+              "Not advertised"
+            )}
+          </span>
+        </div>
       </section>
 
+      {!capabilities ? (
+        <div className="capability-note">
+          <strong>Capabilities not advertised.</strong> Telemetry remains available
+          below as legacy raw fields; remote controls stay hidden until the device
+          publishes a manifest.
+        </div>
+      ) : null}
+
       <div className="command-grid">
-        <DeviceControl commands={commands} submitCommand={submitCommand} />
+        <DeviceControl
+          capabilities={capabilities}
+          commands={commands}
+          key={capabilities?.sent_at ?? "no-capabilities"}
+          submitCommand={submitCommand}
+        />
         <RecentCommands commands={commands} />
       </div>
 
-      {latest ? (
-        <>
-          <section aria-label="Latest telemetry" className="metric-grid">
-            <MetricValue
-              icon={Thermometer}
-              label="Temperature"
-              unit="°C"
-              value={latest.temperature_c.toFixed(1)}
-            />
-            {latest.battery_pct !== null ? (
-              <MetricValue
-                icon={BatteryMedium}
-                label="Battery"
-                unit="%"
-                value={latest.battery_pct.toFixed(1)}
-              />
-            ) : null}
-            {latest.humidity_pct !== null ? (
-              <MetricValue
-                icon={Droplets}
-                label="Humidity"
-                unit="%"
-                value={latest.humidity_pct.toFixed(1)}
-              />
-            ) : null}
-            {latest.pressure_hpa !== null ? (
-              <MetricValue
-                icon={Gauge}
-                label="Pressure"
-                unit="hPa"
-                value={latest.pressure_hpa.toFixed(1)}
-              />
-            ) : null}
-            <MetricValue
-              icon={Radio}
-              label="RSSI"
-              unit="dBm"
-              value={String(latest.rssi_dbm)}
-            />
-            <MetricValue
-              icon={Clock3}
-              label="Uptime"
-              value={formatUptime(latest.uptime_s)}
-            />
-          </section>
+      {capabilities ? (
+        <DeviceMetricSummary capabilities={capabilities} latest={latest} />
+      ) : null}
 
-          <div className="chart-grid">
+      {numericCapabilities.length > 0 ? (
+        <div className="chart-grid">
+          {numericCapabilities.map(([metricName, descriptor], index) => (
             <TelemetryChart
-              color="#70b7ff"
+              color={CHART_COLORS[index % CHART_COLORS.length]}
               data={telemetry}
-              dataKey="temperature_c"
-              label="Temperature"
-              unit="°C"
+              descriptor={descriptor}
+              key={metricName}
+              label={descriptor.label}
+              metricName={metricName}
             />
-            {hasBattery ? (
-              <TelemetryChart
-                color="#4dcb8a"
-                data={telemetry}
-                dataKey="battery_pct"
-                domain={[0, 100]}
-                label="Battery"
-                unit="%"
-              />
-            ) : null}
-            {hasHumidity ? (
-              <TelemetryChart
-                color="#53c7c1"
-                data={telemetry}
-                dataKey="humidity_pct"
-                domain={[0, 100]}
-                label="Humidity"
-                unit="%"
-              />
-            ) : null}
-            {hasPressure ? (
-              <TelemetryChart
-                color="#e1ad62"
-                data={telemetry}
-                dataKey="pressure_hpa"
-                label="Pressure"
-                unit="hPa"
-              />
-            ) : null}
-            <TelemetryChart
-              color="#c295e8"
-              data={telemetry}
-              dataKey="rssi_dbm"
-              decimals={0}
-              label="Signal strength"
-              unit="dBm"
-            />
-          </div>
+          ))}
+        </div>
+      ) : null}
 
-          <RecentTelemetryTable telemetry={telemetry} />
-        </>
-      ) : (
-        <section className="panel">
-          <div className="section-header">
-            <h2 className="section-title">Telemetry</h2>
-            <span className="section-meta">0 samples</span>
-          </div>
-          <div className="no-telemetry">No telemetry has been persisted for this device.</div>
-        </section>
-      )}
+      <RecentTelemetryTable capabilities={capabilities} telemetry={telemetry} />
 
       <p className="footer-note">
-        Charts use the backend-controlled received_at timeline. The table also exposes device-reported sent_at.
+        Charts use the backend-controlled received_at timeline. The table also
+        exposes device-reported sent_at.
       </p>
     </>
   );

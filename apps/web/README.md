@@ -1,9 +1,10 @@
 # DeviceOps web console
 
 The frontend is a Next.js operations console. It loads device state, telemetry,
-command history, persistent fleet events, rules, and alert history through
-FastAPI's REST API, then receives new committed telemetry, status, command,
-event, and alert updates through one FastAPI WebSocket. The browser does not
+command history, device capabilities, persistent fleet events, rules, and alert
+history through FastAPI's REST API, then receives new committed telemetry,
+status, command, capability, event, and alert updates through one FastAPI
+WebSocket. The browser does not
 connect to MQTT.
 
 ## Requirements
@@ -46,16 +47,21 @@ Open <http://localhost:3000>. Register or sign in with a DeviceOps account. The
 access token is kept in memory and in browser `sessionStorage` for the current
 tab; logout, an authenticated REST `401`, or a rejected WebSocket authentication
 clears it. The fleet page then loads that user's devices and API health. Select a
-device row to open `/devices/{deviceId}`, where the latest
-measurements, 100-sample telemetry charts, and recent samples are shown. New
-events update fleet status, last-seen timestamps, current measurements, charts,
-and the recent-samples table without polling or a page reload. Device detail also
-provides compact controls for LED state, reporting interval, and diagnostics,
-plus the newest 10 commands. Submitted commands display as pending until the
-device acknowledgement arrives through the WebSocket. Metric cards,
-charts, and recent-sample columns appear only when the device reports that
-optional measurement, so battery-powered simulators and battery-free sensor
-devices share the same detail page without empty charts.
+device row to open `/devices/{deviceId}`. Device Detail loads the device's
+capability manifest alongside its 100-sample telemetry and command snapshots.
+Manifest order, labels, units, and value types drive metric cards and recent
+sample columns; numeric capabilities with actual numeric samples also receive
+charts. Additional metrics use the same path as first-class telemetry fields.
+Only advertised `set_led`, `set_reporting_interval`, and `request_diagnostics`
+controls appear. Reporting-interval inputs use the advertised numeric type and
+bounds. Submitted commands remain pending until the acknowledgement arrives
+through the WebSocket.
+
+New telemetry and `capabilities_updated` messages update the same page live
+without replacing telemetry or command history. A device without a manifest
+still shows identity, status, timestamps, command history, and an explicitly
+labeled legacy raw recent-samples table. It does not receive inferred metric
+cards, charts, or remote controls.
 
 The Events navigation item opens `/events`, a newest-first operational feed for
 registration, connectivity transitions, command activity, and alert lifecycle

@@ -213,9 +213,9 @@ export type CapabilityValueType = "number" | "integer" | "boolean" | "string";
 export interface CapabilityValueDescriptor {
   type: CapabilityValueType;
   label: string;
-  unit?: string;
-  min?: number;
-  max?: number;
+  unit?: string | null;
+  min?: number | null;
+  max?: number | null;
 }
 
 export interface CapabilityManifest {
@@ -233,6 +233,11 @@ export interface CapabilityManifest {
       }
     >
   >;
+}
+
+export interface CapabilityState {
+  capabilities: CapabilityManifest | null;
+  updated_at: string | null;
 }
 
 export interface CapabilitiesUpdatedEvent {
