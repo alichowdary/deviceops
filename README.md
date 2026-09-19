@@ -42,8 +42,10 @@ Backend setup is in
 
 ## Web console
 
-The frontend provides a compact fleet inventory at <http://localhost:3000> and
-device detail pages at `/devices/{deviceId}`. It shows real API state, latest
+The frontend provides a public engineering-product overview at `/`, dedicated
+authentication at `/login`, and an authenticated fleet inventory at `/fleet`.
+Signed-in device onboarding lives at `/getting-started`, while device detail
+pages remain at `/devices/{deviceId}`. The console shows real API state, latest
 telemetry, server-time history charts, and recent samples. REST supplies the
 initial snapshot and history. New committed telemetry and device status events
 arrive through FastAPI's `/ws` endpoint and update the console in place. The

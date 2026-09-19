@@ -70,7 +70,7 @@ export function DeviceManagementActions({
         token,
         onUnauthorized,
       });
-      router.replace("/");
+      router.replace("/fleet");
       router.refresh();
     } catch (requestError) {
       setError(

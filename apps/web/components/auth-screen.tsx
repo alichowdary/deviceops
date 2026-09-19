@@ -1,13 +1,14 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
 import { useAuth } from "@/components/auth-provider";
 
 type AuthMode = "login" | "register";
 
-export function AuthScreen() {
+export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
   const { initializationError, login, register } = useAuth();
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -29,6 +30,7 @@ export function AuthScreen() {
       if (mode === "login") await login(email, password);
       else await register(email, password);
       setPassword("");
+      onAuthenticated();
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -43,8 +45,9 @@ export function AuthScreen() {
   return (
     <div className="auth-screen">
       <header className="auth-product-bar">
-        <span className="product-name">DeviceOps</span>
+        <Link className="product-name product-link" href="/">DeviceOps</Link>
         <span className="product-context">IoT fleet console</span>
+        <Link className="auth-back-link" href="/">Back to overview</Link>
       </header>
       <main className="auth-main">
         <section aria-labelledby="auth-title" className="auth-panel">

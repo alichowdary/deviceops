@@ -43,11 +43,14 @@ NEXT_PUBLIC_DEVICEOPS_WS_URL=ws://127.0.0.1:8000/ws
 npm run dev
 ```
 
-Open <http://localhost:3000>. Register or sign in with a DeviceOps account. The
-access token is kept in memory and in browser `sessionStorage` for the current
-tab; logout, an authenticated REST `401`, or a rejected WebSocket authentication
-clears it. The fleet page then loads that user's devices and API health. Select a
-device row to open `/devices/{deviceId}`. Device Detail loads the device's
+Open <http://localhost:3000>. The root route is a public product and architecture
+overview. `/login` provides registration and sign-in, `/fleet` is the protected
+device inventory, and `/getting-started` contains practical signed-in simulator
+and ESP32 onboarding. The access token is kept in memory and in browser
+`sessionStorage` for the current tab; logout, an authenticated REST `401`, or a
+rejected WebSocket authentication clears it. Successful authentication opens
+`/fleet`, which loads that user's devices and API health. Select a device row to
+open `/devices/{deviceId}`. Device Detail loads the device's
 capability manifest alongside its 100-sample telemetry and command snapshots.
 Manifest order, labels, units, and value types drive metric cards and recent
 sample columns; numeric capabilities with actual numeric samples also receive

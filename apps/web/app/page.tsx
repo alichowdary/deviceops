@@ -1,249 +1,234 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  Activity,
+  ArrowRight,
+  BellRing,
+  Boxes,
+  Braces,
+  CheckCircle2,
+  Cpu,
+  RadioTower,
+  ShieldCheck,
+  TerminalSquare,
+} from "lucide-react";
+import Link from "next/link";
 
-import { AddDeviceDialog } from "@/components/add-device-dialog";
 import { useAuth } from "@/components/auth-provider";
-import { DeviceTable } from "@/components/device-table";
-import { FleetSummary } from "@/components/fleet-summary";
-import { LiveConnectionIndicator } from "@/components/live-connection-indicator";
-import { RefreshButton } from "@/components/refresh-button";
-import { LoadingState, StatePanel } from "@/components/state-panel";
-import { apiGet } from "@/lib/api";
-import { isLaterTimestamp } from "@/lib/format";
-import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
-import type { Device, DeviceOpsEvent, Health } from "@/lib/types";
 
-interface FleetState {
-  devices: Device[] | null;
-  health: Health | null;
-  loading: boolean;
-  error: string | null;
-}
+const capabilities = [
+  {
+    icon: Activity,
+    title: "Realtime fleet state",
+    description: "REST snapshots stay current through authenticated WebSocket deltas.",
+  },
+  {
+    icon: Braces,
+    title: "Capability-driven UI",
+    description: "Each device declares the metrics, charts, and controls it supports.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Signed device messages",
+    description: "Versioned MQTT envelopes authenticate telemetry, status, and acknowledgements.",
+  },
+  {
+    icon: TerminalSquare,
+    title: "Acknowledged commands",
+    description: "Remote operations stay pending until the device commits a success or failure.",
+  },
+  {
+    icon: BellRing,
+    title: "Events and alerts",
+    description: "Persistent activity, metric thresholds, and offline conditions share one console.",
+  },
+  {
+    icon: Cpu,
+    title: "Simulator and ESP32",
+    description: "Exercise the same contract with Python profiles or ESP32-S3 reference firmware.",
+  },
+] as const;
 
-const initialState: FleetState = {
-  devices: null,
-  health: null,
-  loading: true,
-  error: null,
-};
+const steps = [
+  ["01", "Create an account", "Start an isolated operator workspace."],
+  ["02", "Register a device", "Receive a device ID and one-time secret."],
+  ["03", "Configure an implementation", "Run the simulator or flash a compatible ESP32."],
+  ["04", "Operate live", "Watch capabilities, telemetry, events, alerts, and controls appear."],
+] as const;
 
-function mergeDeviceSnapshots(snapshot: Device[], current: Device[] | null): Device[] {
-  if (current === null) return snapshot;
-  const currentById = new Map(current.map((device) => [device.device_id, device]));
-  return snapshot.map((device) => {
-    const liveDevice = currentById.get(device.device_id);
-    return liveDevice &&
-      isLaterTimestamp(liveDevice.last_seen_at, device.last_seen_at)
-      ? {
-          ...device,
-          status: liveDevice.status,
-          first_seen_at: liveDevice.first_seen_at,
-          last_seen_at: liveDevice.last_seen_at,
-        }
-      : device;
-  });
-}
-
-export default function FleetPage() {
-  const { invalidateSession, token } = useAuth();
-  const [addDeviceOpen, setAddDeviceOpen] = useState(false);
-  const [requestNumber, setRequestNumber] = useState(0);
-  const [state, setState] = useState<FleetState>(initialState);
-
-  useEffect(() => {
-    if (!token) return;
-    const controller = new AbortController();
-
-    Promise.all([
-      apiGet<Device[]>("/api/devices", {
-        signal: controller.signal,
-        token,
-        onUnauthorized: invalidateSession,
-      }),
-      apiGet<Health>("/health", { signal: controller.signal }),
-    ])
-      .then(([devices, health]) => {
-        setState((current) => ({
-          devices: mergeDeviceSnapshots(devices, current.devices),
-          health,
-          loading: false,
-          error: null,
-        }));
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setState((current) => ({
-          ...current,
-          loading: false,
-          error: error instanceof Error ? error.message : "The fleet request failed.",
-        }));
-      });
-
-    return () => controller.abort();
-  }, [invalidateSession, requestNumber, token]);
-
-  const refresh = useCallback(() => {
-    setState((current) => ({ ...current, loading: true, error: null }));
-    setRequestNumber((value) => value + 1);
-  }, []);
-
-  const handleLiveEvent = useCallback((event: DeviceOpsEvent) => {
-    if (
-      event.type === "event_created" ||
-      event.type === "alert_update" ||
-      event.type === "capabilities_updated"
-    ) return;
-    setState((current) => {
-      if (current.devices === null) return current;
-
-      const existingIndex = current.devices.findIndex(
-        (device) => device.device_id === event.device_id,
-      );
-      const existing = current.devices[existingIndex];
-      const updated: Device = existing
-        ? {
-            ...existing,
-            status:
-              event.type === "device_status" ? event.data.status : existing.status,
-            first_seen_at: existing.first_seen_at ?? event.received_at,
-            last_seen_at: event.received_at,
-          }
-        : {
-            device_id: event.device_id,
-            display_name: null,
-            status: event.type === "device_status" ? event.data.status : "unknown",
-            first_seen_at: event.received_at,
-            last_seen_at: event.received_at,
-          };
-
-      const devices = [...current.devices];
-      if (existingIndex >= 0) devices[existingIndex] = updated;
-      else devices.push(updated);
-      devices.sort((left, right) => left.device_id.localeCompare(right.device_id));
-      return { ...current, devices };
-    });
-  }, []);
-
-  const handleRegisteredDevice = useCallback((registeredDevice: Device) => {
-    setState((current) => {
-      const devices = current.devices ?? [];
-      if (
-        devices.some(
-          (device) => device.device_id === registeredDevice.device_id,
-        )
-      ) {
-        return current;
-      }
-      return {
-        ...current,
-        devices: [...devices, registeredDevice].sort((left, right) =>
-          left.device_id.localeCompare(right.device_id),
-        ),
-      };
-    });
-  }, []);
-
-  const liveConnection = useDeviceOpsWebSocket({
-    enabled: state.devices !== null && token !== null,
-    token,
-    onEvent: handleLiveEvent,
-    onReconnect: refresh,
-    onAuthenticationFailure: invalidateSession,
-  });
-
-  if (state.loading && state.devices === null) {
-    return <LoadingState label="Loading fleet inventory" />;
-  }
-
-  if (state.error && state.devices === null) {
-    return (
-      <StatePanel
-        action={
-          <button className="button button-primary" onClick={refresh} type="button">
-            Retry connection
-          </button>
-        }
-        description={`${state.error} Confirm FastAPI is running and the frontend API URL is correct.`}
-        eyebrow="Backend unavailable"
-        title="Fleet data could not be loaded"
-      />
-    );
-  }
-
-  const devices = state.devices ?? [];
+export default function LandingPage() {
+  const { initialized, user } = useAuth();
+  const consoleHref = user ? "/fleet" : "/login";
+  const consoleLabel = initialized && user ? "Open console" : "Try DeviceOps";
 
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <h1 className="page-title">Fleet</h1>
-          <p className="page-description">Device inventory and observed connectivity</p>
-        </div>
-        <div className="page-actions">
-          <button
-            className="button button-primary"
-            onClick={() => setAddDeviceOpen(true)}
-            type="button"
-          >
-            <Plus aria-hidden="true" size={14} />
-            Add device
-          </button>
-          <RefreshButton loading={state.loading} onClick={refresh} />
-        </div>
+    <div className="landing-shell">
+      <header className="landing-header">
+        <Link className="landing-brand" href="/">
+          <span className="product-name">DeviceOps</span>
+          <span className="product-context">IoT fleet operations</span>
+        </Link>
+        <nav aria-label="Public navigation" className="landing-nav">
+          <a href="#architecture">Architecture</a>
+          <a href="#how-it-works">How it works</a>
+          <Link className="button button-secondary" href={consoleHref}>
+            {initialized && user ? "Open console" : "Sign in"}
+          </Link>
+        </nav>
       </header>
 
-      {state.health ? (
-        <div className="health-line">
-          {state.health.status === "ok" ? (
-            <CheckCircle2 aria-hidden="true" className="health-ok" size={13} />
-          ) : (
-            <AlertTriangle aria-hidden="true" className="health-degraded" size={13} />
-          )}
-          <span className={state.health.status === "ok" ? "health-ok" : "health-degraded"}>
-            Ingestion {state.health.status}
-          </span>
-          <span className="health-divider" />
-          <span>PostgreSQL: {state.health.database}</span>
-          <span className="health-divider" />
-          <span>MQTT: {state.health.mqtt}</span>
-          <span className="health-divider" />
-          <LiveConnectionIndicator state={liveConnection} />
-        </div>
-      ) : null}
+      <main>
+        <section className="landing-hero">
+          <div className="landing-hero-copy">
+            <span className="state-eyebrow">Heterogeneous device operations</span>
+            <h1>Operate IoT devices from one console.</h1>
+            <p>
+              Devices publish signed MQTT telemetry. FastAPI persists and evaluates
+              it, while Next.js combines REST snapshots with realtime WebSocket
+              updates. Capability manifests let every device describe its own
+              metrics and controls.
+            </p>
+            <div className="landing-actions">
+              <Link className="button button-primary" href={consoleHref}>
+                {consoleLabel}
+                <ArrowRight aria-hidden="true" size={14} />
+              </Link>
+              <a className="button button-secondary" href="#architecture">
+                View architecture
+              </a>
+            </div>
+          </div>
 
-      <FleetSummary devices={devices} />
+          <div aria-label="Example fleet state" className="landing-console-preview">
+            <div className="preview-titlebar">
+              <span>Fleet / live inventory</span>
+              <span className="preview-live">
+                <span aria-hidden="true" /> Live
+              </span>
+            </div>
+            <div className="preview-summary">
+              <div><strong>3</strong><span>Devices</span></div>
+              <div><strong className="health-ok">2</strong><span>Online</span></div>
+              <div><strong className="health-degraded">1</strong><span>Offline</span></div>
+            </div>
+            <div className="preview-device-row">
+              <span className="status-dot status-dot-online" />
+              <span><strong>Workshop sensor</strong><small>Temperature · humidity · pressure</small></span>
+              <code>online</code>
+            </div>
+            <div className="preview-device-row">
+              <span className="status-dot status-dot-online" />
+              <span><strong>Portable monitor</strong><small>Battery · ambient light · motion</small></span>
+              <code>online</code>
+            </div>
+            <div className="preview-event">
+              <CheckCircle2 aria-hidden="true" size={13} />
+              Command acknowledged · reporting interval updated
+            </div>
+          </div>
+        </section>
 
-      {state.error ? (
-        <div className="health-line health-degraded">
-          <AlertTriangle aria-hidden="true" size={13} />
-          Refresh failed. Showing the last successfully loaded inventory.
-        </div>
-      ) : null}
+        <section aria-labelledby="capabilities-title" className="landing-section">
+          <div className="landing-section-heading">
+            <span className="state-eyebrow">Implemented product</span>
+            <h2 id="capabilities-title">Built around the operational evidence</h2>
+            <p>Monitor state, inspect history, and act without bypassing the device protocol.</p>
+          </div>
+          <div className="landing-capability-grid">
+            {capabilities.map(({ icon: Icon, title, description }) => (
+              <article className="landing-capability" key={title}>
+                <Icon aria-hidden="true" size={16} strokeWidth={1.7} />
+                <h3>{title}</h3>
+                <p>{description}</p>
+              </article>
+            ))}
+          </div>
+        </section>
 
-      {devices.length === 0 ? (
-        <StatePanel
-          description="Register a device to generate its one-time credentials and add it to this fleet."
-          eyebrow="0 devices"
-          title="No devices registered"
-        />
-      ) : (
-        <DeviceTable devices={devices} />
-      )}
+        <section
+          aria-labelledby="architecture-title"
+          className="landing-section landing-architecture"
+          id="architecture"
+        >
+          <div className="landing-section-heading">
+            <span className="state-eyebrow">System path</span>
+            <h2 id="architecture-title">One versioned path from device to operator</h2>
+          </div>
+          <div className="architecture-board">
+            <div className="architecture-flow">
+              <div className="architecture-node"><Cpu size={15} />Device / ESP32-S3</div>
+              <span aria-hidden="true">→</span>
+              <div className="architecture-node"><RadioTower size={15} />MQTT / Mosquitto</div>
+              <span aria-hidden="true">→</span>
+              <div className="architecture-node architecture-node-core"><Boxes size={15} />FastAPI</div>
+              <span aria-hidden="true">→</span>
+              <div className="architecture-node">PostgreSQL</div>
+            </div>
+            <div className="architecture-client-flow">
+              <span>Next.js console</span>
+              <span aria-hidden="true">←</span>
+              <code>REST + WebSocket</code>
+              <span aria-hidden="true">←</span>
+              <span>FastAPI</span>
+            </div>
+            <p>
+              The browser communicates only with FastAPI. MQTT remains between
+              devices, Mosquitto, and the backend ingestion process.
+            </p>
+          </div>
+          <div className="technology-list" aria-label="Technology stack">
+            {[
+              "ESP32-S3",
+              "Python simulator",
+              "MQTT / Mosquitto",
+              "FastAPI",
+              "PostgreSQL",
+              "Next.js / TypeScript",
+              "WebSockets",
+              "Docker",
+            ].map((technology) => <span key={technology}>{technology}</span>)}
+          </div>
+        </section>
 
-      <p className="footer-note">
-        Data is loaded from the DeviceOps REST API. Use Refresh to request the latest persisted state.
-      </p>
+        <section
+          aria-labelledby="how-title"
+          className="landing-section"
+          id="how-it-works"
+        >
+          <div className="landing-section-heading">
+            <span className="state-eyebrow">How it works</span>
+            <h2 id="how-title">From registration to live operations</h2>
+            <p>
+              Compatible devices follow a versioned MQTT contract and sign
+              application-layer messages without exposing their secret.
+            </p>
+          </div>
+          <ol className="landing-steps">
+            {steps.map(([number, title, description]) => (
+              <li key={number}>
+                <code>{number}</code>
+                <div><h3>{title}</h3><p>{description}</p></div>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-      {addDeviceOpen && token ? (
-        <AddDeviceDialog
-          onClose={() => setAddDeviceOpen(false)}
-          onRegistered={handleRegisteredDevice}
-          onUnauthorized={invalidateSession}
-          token={token}
-        />
-      ) : null}
-    </>
+        <section className="landing-final-cta">
+          <div>
+            <span className="state-eyebrow">DeviceOps console</span>
+            <h2>Connect a simulator or physical ESP32.</h2>
+            <p>Register a device, save its credentials once, and follow the signed-in setup guide.</p>
+          </div>
+          <Link className="button button-primary" href={consoleHref}>
+            {consoleLabel}<ArrowRight aria-hidden="true" size={14} />
+          </Link>
+        </section>
+      </main>
+
+      <footer className="landing-footer">
+        <span>DeviceOps</span>
+        <span>MQTT protocol v1 · REST snapshots · WebSocket deltas</span>
+      </footer>
+    </div>
   );
 }

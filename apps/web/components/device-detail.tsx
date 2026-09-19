@@ -298,7 +298,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     return (
       <StatePanel
         action={
-          <Link className="button button-secondary" href="/">
+          <Link className="button button-secondary" href="/fleet">
             Return to fleet
           </Link>
         }

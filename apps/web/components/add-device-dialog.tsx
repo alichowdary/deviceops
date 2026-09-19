@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy, LoaderCircle } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { apiPost } from "@/lib/api";
@@ -188,14 +189,25 @@ export function AddDeviceDialog({
 
         <footer className="dialog-footer">
           {credentials ? (
-            <button
-              className="button button-primary"
-              disabled={!saved}
-              onClick={closeDialog}
-              type="button"
-            >
-              Done
-            </button>
+            <>
+              {saved ? (
+                <Link
+                  className="button button-secondary"
+                  href="/getting-started"
+                  onClick={closeDialog}
+                >
+                  View setup instructions
+                </Link>
+              ) : null}
+              <button
+                className="button button-primary"
+                disabled={!saved}
+                onClick={closeDialog}
+                type="button"
+              >
+                Done
+              </button>
+            </>
           ) : (
             <>
               <button

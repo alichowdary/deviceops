@@ -1,22 +1,42 @@
 "use client";
 
-import { Activity, Bell, LoaderCircle, LogOut, RadioTower } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  BookOpen,
+  LoaderCircle,
+  LogOut,
+  RadioTower,
+} from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { useAuth } from "@/components/auth-provider";
-import { AuthScreen } from "@/components/auth-screen";
-
 const navItems = [
-  { label: "Fleet", href: "/", icon: RadioTower, enabled: true },
-  { label: "Events", href: "/events", icon: Activity, enabled: true },
-  { label: "Alerts", href: "/alerts", icon: Bell, enabled: true },
+  { label: "Fleet", href: "/fleet", icon: RadioTower },
+  { label: "Events", href: "/events", icon: Activity },
+  { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Getting Started", href: "/getting-started", icon: BookOpen },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { initialized, invalidateSession, user } = useAuth();
+  const loggingOut = useRef(false);
+
+  useEffect(() => {
+    if (initialized && !user && !loggingOut.current) {
+      router.replace("/login");
+    }
+  }, [initialized, router, user]);
+
+  function logout() {
+    loggingOut.current = true;
+    invalidateSession();
+    router.replace("/");
+  }
 
   if (!initialized) {
     return (
@@ -27,7 +47,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) return <AuthScreen />;
+  if (!user) {
+    return (
+      <div aria-live="polite" className="auth-screen auth-loading">
+        <LoaderCircle aria-hidden="true" className="icon-spin" size={17} />
+        Redirecting to sign in
+      </div>
+    );
+  }
 
   return (
     <div className="app-grid">
@@ -41,24 +68,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {navItems.map((item) => {
             const Icon = item.icon;
             const active =
-              item.enabled &&
-              (item.href === "/"
-                ? pathname === "/" || pathname.startsWith("/devices/")
-                : pathname === item.href || pathname.startsWith(`${item.href}/`));
-
-            if (!item.enabled) {
-              return (
-                <span
-                  aria-disabled="true"
-                  className="nav-item nav-item-disabled"
-                  key={item.label}
-                >
-                  <Icon aria-hidden="true" size={15} strokeWidth={1.8} />
-                  {item.label}
-                  <span className="nav-later">later</span>
-                </span>
-              );
-            }
+              item.href === "/fleet"
+                ? pathname === "/fleet" || pathname.startsWith("/devices/")
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
             return (
               <Link
@@ -89,17 +101,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
             <button
               className="session-logout"
-              onClick={invalidateSession}
+              onClick={logout}
               type="button"
             >
               <LogOut aria-hidden="true" size={13} />
               Logout
             </button>
           </div>
-          <span className="environment-label">
-            <span className="environment-dot" />
-            local development
-          </span>
+          <span className="environment-label">DeviceOps console</span>
         </header>
         <main className="main-content">{children}</main>
       </div>

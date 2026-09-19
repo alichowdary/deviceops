@@ -8,7 +8,7 @@ export default function NotFound() {
       eyebrow="404"
       title="Page not found"
       description="The requested DeviceOps page does not exist."
-      action={<Link className="button button-secondary" href="/">Return to fleet</Link>}
+      action={<Link className="button button-secondary" href="/">Return home</Link>}
     />
   );
 }
