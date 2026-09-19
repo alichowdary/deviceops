@@ -51,12 +51,47 @@ class AlertRuleTests(unittest.TestCase):
             owner_id=self.owner.id,
             device_secret_hash="test-only-unused",
             status="unknown",
+            capabilities={
+                "telemetry": {
+                    "temperature_c": {
+                        "type": "number",
+                        "label": "Temperature",
+                        "unit": "°C",
+                    },
+                    "light_lux": {
+                        "type": "number",
+                        "label": "Ambient light",
+                        "unit": "lux",
+                    },
+                    "sample_count": {
+                        "type": "integer",
+                        "label": "Sample count",
+                        "unit": None,
+                    },
+                    "motion_detected": {
+                        "type": "boolean",
+                        "label": "Motion detected",
+                        "unit": None,
+                    },
+                    "operating_mode": {
+                        "type": "string",
+                        "label": "Operating mode",
+                        "unit": None,
+                    },
+                    "uptime_s": {
+                        "type": "integer",
+                        "label": "Uptime",
+                        "unit": "s",
+                    },
+                }
+            },
         )
         self.other_device = Device(
             device_id=f"dev-rules-other-{suffix}",
             owner_id=self.other_user.id,
             device_secret_hash="test-only-unused",
             status="unknown",
+            capabilities={"telemetry": {}},
         )
         self.session.add_all([self.device, self.other_device])
         self.session.commit()
@@ -158,7 +193,7 @@ class AlertRuleTests(unittest.TestCase):
             {
                 "device_id": self.device.device_id,
                 "rule_type": "metric_threshold",
-                "metric": "unsupported_metric",
+                "metric": "unsupported metric",
                 "operator": "gt",
                 "threshold": 1,
             },
@@ -202,6 +237,52 @@ class AlertRuleTests(unittest.TestCase):
         for update in ({}, {"enabled": None}, {"device_id": self.device.device_id}):
             with self.subTest(update=update), self.assertRaises(ValidationError):
                 AlertRuleUpdate.model_validate(update)
+
+    def test_create_accepts_any_advertised_numeric_metric(self) -> None:
+        number_rule = self._create_metric_rule(
+            metric="light_lux", threshold=250.5
+        )
+        integer_rule = self._create_metric_rule(
+            metric="sample_count", threshold=10
+        )
+        uptime_rule = self._create_metric_rule(
+            metric="uptime_s", threshold=60
+        )
+
+        self.assertEqual(number_rule.metric, "light_lux")
+        self.assertEqual(number_rule.threshold, 250.5)
+        self.assertEqual(integer_rule.metric, "sample_count")
+        self.assertEqual(uptime_rule.metric, "uptime_s")
+
+    def test_create_rejects_non_numeric_unadvertised_and_missing_capabilities(self) -> None:
+        for metric in ("motion_detected", "operating_mode", "not_advertised"):
+            with self.subTest(metric=metric), self.assertRaises(HTTPException) as raised:
+                self._create_metric_rule(metric=metric, threshold=1)
+            self.assertEqual(raised.exception.status_code, 422)
+
+        capabilities = self.device.capabilities
+        self.device.capabilities = None
+        self.session.commit()
+        with self.assertRaises(HTTPException) as raised:
+            self._create_metric_rule()
+        self.assertEqual(raised.exception.status_code, 422)
+        self.device.capabilities = capabilities
+        self.session.commit()
+
+    def test_existing_metric_rule_remains_editable_after_manifest_change(self) -> None:
+        rule = self._create_metric_rule(metric="light_lux", threshold=250)
+        self.device.capabilities = {"telemetry": {}}
+        self.session.commit()
+
+        updated = update_alert_rule(
+            rule.id,
+            AlertRuleUpdate(threshold=275),
+            self.session,
+            self.owner,
+        )
+
+        self.assertEqual(updated.metric, "light_lux")
+        self.assertEqual(updated.threshold, 275)
 
     def test_list_is_owner_scoped_and_filters_work(self) -> None:
         metric = self._create_metric_rule(severity="warning")
@@ -250,6 +331,19 @@ class AlertRuleTests(unittest.TestCase):
                 self.owner,
             )
         self.assertEqual(create_error.exception.status_code, 404)
+        with self.assertRaises(HTTPException) as metric_create_error:
+            create_alert_rule(
+                AlertRuleCreate(
+                    device_id=self.other_device.device_id,
+                    rule_type="metric_threshold",
+                    metric="not_advertised",
+                    operator="gt",
+                    threshold=1,
+                ),
+                self.session,
+                self.owner,
+            )
+        self.assertEqual(metric_create_error.exception.status_code, 404)
         with self.assertRaises(HTTPException) as filter_error:
             self._list(self.owner, device_id=self.other_device.device_id)
         self.assertEqual(filter_error.exception.status_code, 404)

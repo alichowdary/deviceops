@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..alerts import publish_alert_changes, resolve_active_rule_alert
 from ..database import get_database_session
-from ..models import AlertRule, User
+from ..models import AlertRule, Device, User
 from ..ownership import (
     get_owned_alert_rule_or_404,
     get_owned_device_or_404,
@@ -30,6 +30,27 @@ from ..security import get_current_user
 router = APIRouter(prefix="/api/alert-rules", tags=["alert rules"])
 DatabaseSession = Annotated[Session, Depends(get_database_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def _validate_metric_capability(device: Device, metric: str) -> None:
+    capabilities = device.capabilities
+    if not isinstance(capabilities, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Metric threshold rules require advertised device capabilities",
+        )
+    telemetry = capabilities.get("telemetry")
+    descriptor = telemetry.get(metric) if isinstance(telemetry, dict) else None
+    if not isinstance(descriptor, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Metric '{metric}' is not advertised by this device",
+        )
+    if descriptor.get("type") not in {"number", "integer"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Metric '{metric}' is not numeric",
+        )
 
 
 @router.get("", response_model=list[AlertRuleRead])
@@ -73,7 +94,11 @@ def create_alert_rule(
     session: DatabaseSession,
     current_user: CurrentUser,
 ) -> AlertRule:
-    get_owned_device_or_404(session, request.device_id, current_user.id)
+    device = get_owned_device_or_404(
+        session, request.device_id, current_user.id
+    )
+    if request.rule_type == "metric_threshold":
+        _validate_metric_capability(device, request.metric or "")
     rule = AlertRule(owner_id=current_user.id, **request.model_dump())
     session.add(rule)
     session.commit()

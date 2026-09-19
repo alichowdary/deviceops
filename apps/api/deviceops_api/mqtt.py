@@ -482,13 +482,7 @@ class MqttIngestor:
         try:
             evaluate_committed_metric_sample(
                 device_id=topic_device_id,
-                metrics={
-                    "temperature_c": payload.metrics.temperature_c,
-                    "battery_pct": payload.metrics.battery_pct,
-                    "humidity_pct": payload.metrics.humidity_pct,
-                    "pressure_hpa": payload.metrics.pressure_hpa,
-                    "rssi_dbm": payload.metrics.rssi_dbm,
-                },
+                telemetry_id=telemetry_id,
                 observed_at=received_at,
             )
         except Exception:

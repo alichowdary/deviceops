@@ -257,6 +257,51 @@ a:focus-visible,
   color: #dbc889;
 }
 
+.dialog-danger {
+  padding: 9px 10px;
+  border-left: 3px solid var(--offline);
+  background: var(--offline-muted);
+  color: #edb2b2;
+}
+
+.danger-text {
+  color: var(--offline);
+}
+
+.device-management-dialog {
+  width: min(100%, 520px);
+}
+
+.dialog-field {
+  display: grid;
+  gap: 5px;
+}
+
+.dialog-field > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 620;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.dialog-field input {
+  width: 100%;
+  height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: #0d1216;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.dialog-field input:focus {
+  border-color: #4f8bb8;
+  outline: 1px solid #4f8bb8;
+}
+
 .credential-list {
   display: grid;
   gap: 10px;
@@ -551,6 +596,8 @@ a:focus-visible,
 .page-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -593,6 +640,23 @@ a:focus-visible,
 .button-secondary:hover:not(:disabled) {
   border-color: #475461;
   background: var(--surface-hover);
+}
+
+.button-danger {
+  border-color: #683235;
+  background: var(--offline-muted);
+  color: #f2a0a0;
+}
+
+.button-danger:hover:not(:disabled) {
+  border-color: #874247;
+  background: #402024;
+  color: #ffd1d1;
+}
+
+.button-danger-solid {
+  background: #7b292f;
+  color: #fff;
 }
 
 .icon-spin {
@@ -952,6 +1016,7 @@ a:focus-visible,
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
   margin-bottom: 14px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -960,19 +1025,10 @@ a:focus-visible,
 
 .metric-value {
   min-height: 82px;
+  margin: -1px 0 0 -1px;
   padding: 12px 14px;
-}
-
-.metric-value + .metric-value {
-  border-left: 1px solid var(--border);
-}
-
-.metric-value:nth-child(n + 5) {
-  border-top: 1px solid var(--border);
-}
-
-.metric-value:nth-child(4n + 1) {
-  border-left: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .capability-note {
@@ -1567,6 +1623,11 @@ a:focus-visible,
   text-transform: none;
 }
 
+.alert-form-field .alert-metric-note {
+  line-height: 1.4;
+  text-transform: none;
+}
+
 .alert-form-field input,
 .alert-form-field select {
   width: 100%;
@@ -1715,13 +1776,8 @@ a:focus-visible,
     border-top: 1px solid var(--border);
   }
 
-  .summary-item:nth-child(3),
-  .metric-value:nth-child(odd) {
+  .summary-item:nth-child(3) {
     border-left: 0;
-  }
-
-  .metric-value:nth-child(n + 3) {
-    border-top: 1px solid var(--border);
   }
 
   .detail-meta-grid {
@@ -1788,9 +1844,7 @@ a:focus-visible,
   }
 
   .summary-item + .summary-item,
-  .metric-value + .metric-value,
-  .summary-item:nth-child(3),
-  .metric-value:nth-child(3) {
+  .summary-item:nth-child(3) {
     border-top: 1px solid var(--border);
     border-left: 0;
   }

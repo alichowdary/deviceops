@@ -1,11 +1,11 @@
-"""Read-only device and telemetry endpoints."""
+"""Owner-scoped device management and telemetry endpoints."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from ..schemas import (
     DeviceRead,
     DeviceRegistrationCreate,
     DeviceRegistrationRead,
+    DeviceUpdate,
     TelemetryRead,
 )
 from ..security import get_current_user
@@ -101,6 +102,46 @@ def get_device(
     device_id: str, session: DatabaseSession, current_user: CurrentUser
 ) -> Device:
     return get_owned_device_or_404(session, device_id, current_user.id)
+
+
+@router.patch("/{device_id}", response_model=DeviceRead)
+def update_device(
+    device_id: str,
+    request: DeviceUpdate,
+    session: DatabaseSession,
+    current_user: CurrentUser,
+) -> Device:
+    device = get_owned_device_or_404(session, device_id, current_user.id)
+    device.display_name = request.display_name
+    try:
+        session.commit()
+        session.refresh(device)
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Device update failed",
+        ) from exc
+    return device
+
+
+@router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_device(
+    device_id: str,
+    session: DatabaseSession,
+    current_user: CurrentUser,
+) -> Response:
+    device = get_owned_device_or_404(session, device_id, current_user.id)
+    session.delete(device)
+    try:
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Device deletion failed",
+        ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

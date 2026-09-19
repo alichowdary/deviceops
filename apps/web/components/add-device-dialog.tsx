@@ -38,6 +38,7 @@ export function AddDeviceDialog({
       setCredentials(registration);
       onRegistered({
         device_id: registration.device_id,
+        display_name: null,
         status: registration.status,
         first_seen_at: null,
         last_seen_at: null,

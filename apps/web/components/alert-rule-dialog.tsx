@@ -1,10 +1,11 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
-import { apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { formatDeviceLabel } from "@/lib/devices";
 import type {
   AlertMetric,
   AlertOperator,
@@ -12,6 +13,8 @@ import type {
   AlertRuleCreate,
   AlertSeverity,
   AlertRuleType,
+  CapabilityState,
+  CapabilityValueDescriptor,
   Device,
 } from "@/lib/types";
 
@@ -24,13 +27,31 @@ const durationMultipliers: Record<DurationUnit, number> = {
   days: 86_400,
 };
 
-const metrics: Array<{ value: AlertMetric; label: string }> = [
-  { value: "temperature_c", label: "Temperature (°C)" },
-  { value: "humidity_pct", label: "Humidity (%)" },
-  { value: "pressure_hpa", label: "Pressure (hPa)" },
-  { value: "battery_pct", label: "Battery (%)" },
-  { value: "rssi_dbm", label: "Signal strength (dBm)" },
-];
+const alertMetricPresentation: Record<string, { label: string; unit: string }> = {
+  temperature_c: { label: "Temperature", unit: "°C" },
+  humidity_pct: { label: "Humidity", unit: "%" },
+  pressure_hpa: { label: "Pressure", unit: "hPa" },
+  battery_pct: { label: "Battery", unit: "%" },
+  rssi_dbm: { label: "Signal strength", unit: "dBm" },
+  uptime_s: { label: "Uptime", unit: "s" },
+};
+
+function readableMetricLabel(value: AlertMetric): string {
+  return value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function metricOption(
+  value: AlertMetric,
+  descriptor?: CapabilityValueDescriptor,
+): { value: AlertMetric; label: string } {
+  const presentation = alertMetricPresentation[value];
+  const label =
+    value === "rssi_dbm"
+      ? presentation.label
+      : descriptor?.label ?? presentation?.label ?? readableMetricLabel(value);
+  const unit = descriptor?.unit ?? presentation?.unit ?? "";
+  return { value, label: unit ? `${label} (${unit})` : label };
+}
 
 const operators: Array<{ value: AlertOperator; label: string }> = [
   { value: "gt", label: "> greater than" },
@@ -90,12 +111,69 @@ export function AlertRuleDialog({
     rule?.severity ?? "warning",
   );
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
+  const [capabilityState, setCapabilityState] = useState<CapabilityState | null>(null);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
+  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiGet<CapabilityState>(
+      `/api/devices/${encodeURIComponent(deviceId)}/capabilities`,
+      { signal: controller.signal, token, onUnauthorized },
+    )
+      .then((nextCapabilityState) => {
+        setCapabilityState(nextCapabilityState);
+        if (!rule && nextCapabilityState.capabilities) {
+          const available = Object.entries(
+            nextCapabilityState.capabilities.telemetry,
+          )
+            .filter(([, descriptor]) =>
+              descriptor.type === "number" || descriptor.type === "integer"
+            )
+            .map(([candidate]) => candidate);
+          setMetric((current) =>
+            available.includes(current) ? current : available[0] ?? current,
+          );
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") {
+          return;
+        }
+        setCapabilitiesError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Capabilities could not be loaded.",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCapabilitiesLoading(false);
+      });
+    return () => controller.abort();
+  }, [deviceId, onUnauthorized, rule, token]);
+
+  const advertisedTelemetry = capabilityState?.capabilities?.telemetry;
+  const metricOptions = rule?.metric
+    ? [metricOption(rule.metric, advertisedTelemetry?.[rule.metric])]
+    : advertisedTelemetry
+      ? Object.entries(advertisedTelemetry)
+          .filter(([, descriptor]) =>
+            descriptor.type === "number" || descriptor.type === "integer"
+          )
+          .map(([candidate, descriptor]) => metricOption(candidate, descriptor))
+      : [];
+  const metricUnavailable = !rule && !capabilitiesLoading && metricOptions.length === 0;
 
   async function saveRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+
+    if (ruleType === "metric_threshold" && metricUnavailable) {
+      setError("This device has no advertised metrics supported by alert rules.");
+      return;
+    }
 
     const normalizedName = name.trim() || null;
     const thresholdValue = Number(threshold);
@@ -205,7 +283,7 @@ export function AlertRuleDialog({
             <p id="alert-rule-description">
               {rule
                 ? "Update how this rule is configured. Its device and rule type remain fixed."
-                : "Define a condition for one device. Rule evaluation is added in the next phase."}
+                : "Define a condition to evaluate against committed device telemetry or connectivity."}
             </p>
 
             <div className="alert-form-grid">
@@ -213,13 +291,18 @@ export function AlertRuleDialog({
                 <span>Device</span>
                 <select
                   disabled={Boolean(rule) || submitting}
-                  onChange={(event) => setDeviceId(event.target.value)}
+                  onChange={(event) => {
+                    setDeviceId(event.target.value);
+                    setCapabilityState(null);
+                    setCapabilitiesLoading(true);
+                    setCapabilitiesError(null);
+                  }}
                   required
                   value={deviceId}
                 >
                   {devices.map((device) => (
                     <option key={device.device_id} value={device.device_id}>
-                      {device.device_id}
+                      {formatDeviceLabel(device)}
                     </option>
                   ))}
                 </select>
@@ -253,16 +336,46 @@ export function AlertRuleDialog({
                   <label className="alert-form-field">
                     <span>Metric</span>
                     <select
-                      disabled={Boolean(rule) || submitting}
+                      disabled={
+                        Boolean(rule) ||
+                        submitting ||
+                        capabilitiesLoading ||
+                        metricOptions.length === 0
+                      }
                       onChange={(event) => setMetric(event.target.value as AlertMetric)}
                       value={metric}
                     >
-                      {metrics.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
+                      {metricOptions.length > 0 ? (
+                        metricOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))
+                      ) : (
+                        <option value={metric}>
+                          {capabilitiesLoading
+                            ? "Loading advertised metrics…"
+                            : "No alertable metrics advertised"}
                         </option>
-                      ))}
+                      )}
                     </select>
+                    {!rule && !capabilitiesLoading && !capabilitiesError && !advertisedTelemetry ? (
+                      <small className="alert-metric-note">
+                        This device has not advertised capabilities. Device offline
+                        rules remain available.
+                      </small>
+                    ) : null}
+                    {!rule && !capabilitiesLoading && advertisedTelemetry && metricOptions.length === 0 ? (
+                      <small className="alert-metric-note">
+                        This device advertises no numeric metrics. Device offline
+                        rules remain available.
+                      </small>
+                    ) : null}
+                    {capabilitiesError ? (
+                      <small className="alert-metric-note">
+                        Metric availability could not be loaded. {capabilitiesError}
+                      </small>
+                    ) : null}
                   </label>
                   <label className="alert-form-field">
                     <span>Comparison</span>
@@ -369,7 +482,16 @@ export function AlertRuleDialog({
             >
               Cancel
             </button>
-            <button className="button button-primary" disabled={submitting} type="submit">
+            <button
+              className="button button-primary"
+              disabled={
+                submitting ||
+                (!rule &&
+                  ruleType === "metric_threshold" &&
+                  (capabilitiesLoading || metricUnavailable))
+              }
+              type="submit"
+            >
               {submitting ? (
                 <>
                   <LoaderCircle aria-hidden="true" className="icon-spin" size={14} />

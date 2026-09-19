@@ -44,6 +44,7 @@ class Device(Base):
     __table_args__ = (Index("ix_devices_owner_id", "owner_id"),)
 
     device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     owner_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=True
     )
@@ -133,8 +134,7 @@ class AlertRule(Base):
             name="ck_alert_rules_severity",
         ),
         CheckConstraint(
-            "metric IS NULL OR metric IN ('temperature_c', 'humidity_pct', "
-            "'pressure_hpa', 'battery_pct', 'rssi_dbm')",
+            "metric IS NULL OR metric ~ '^[a-z][a-z0-9_]{0,63}$'",
             name="ck_alert_rules_metric",
         ),
         CheckConstraint(
@@ -156,12 +156,9 @@ class AlertRule(Base):
             name="ck_alert_rules_offline_bounds",
         ),
         CheckConstraint(
-            "threshold IS NULL OR "
-            "((metric = 'temperature_c' AND threshold BETWEEN -100 AND 200) OR "
-            "(metric = 'humidity_pct' AND threshold BETWEEN 0 AND 100) OR "
-            "(metric = 'pressure_hpa' AND threshold BETWEEN 0 AND 2000) OR "
-            "(metric = 'battery_pct' AND threshold BETWEEN 0 AND 100) OR "
-            "(metric = 'rssi_dbm' AND threshold BETWEEN -200 AND 0))",
+            "threshold IS NULL OR threshold BETWEEN "
+            "'-1.7976931348623157e308'::float8 AND "
+            "'1.7976931348623157e308'::float8",
             name="ck_alert_rules_threshold_bounds",
         ),
         Index(
@@ -186,7 +183,7 @@ class AlertRule(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
-    metric: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    metric: Mapped[str | None] = mapped_column(String(64), nullable=True)
     operator: Mapped[str | None] = mapped_column(String(8), nullable=True)
     threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     offline_after_seconds: Mapped[int | None] = mapped_column(
@@ -219,8 +216,7 @@ class Alert(Base):
             name="ck_alerts_status",
         ),
         CheckConstraint(
-            "metric IS NULL OR metric IN ('temperature_c', 'humidity_pct', "
-            "'pressure_hpa', 'battery_pct', 'rssi_dbm')",
+            "metric IS NULL OR metric ~ '^[a-z][a-z0-9_]{0,63}$'",
             name="ck_alerts_metric",
         ),
         CheckConstraint(
@@ -280,7 +276,7 @@ class Alert(Base):
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     condition: Mapped[str] = mapped_column(String(255), nullable=False)
-    metric: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    metric: Mapped[str | None] = mapped_column(String(64), nullable=True)
     operator: Mapped[str | None] = mapped_column(String(8), nullable=True)
     threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     offline_after_seconds: Mapped[int | None] = mapped_column(

@@ -27,6 +27,7 @@ import type {
 } from "@/lib/types";
 
 import { DeviceControl } from "./device-control";
+import { DeviceManagementActions } from "./device-management-actions";
 import { DeviceMetricSummary } from "./device-metric-summary";
 import { LiveConnectionIndicator } from "./live-connection-indicator";
 import { RecentCommands } from "./recent-commands";
@@ -153,7 +154,12 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
           device:
             current.device &&
             isLaterTimestamp(current.device.last_seen_at, device.last_seen_at)
-              ? current.device
+              ? {
+                  ...device,
+                  status: current.device.status,
+                  first_seen_at: current.device.first_seen_at,
+                  last_seen_at: current.device.last_seen_at,
+                }
               : device,
           telemetry: mergeTelemetrySnapshots(telemetry, current.telemetry),
           commands: mergeCommandSnapshots(commands, current.commands),
@@ -280,6 +286,10 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
     [deviceId, invalidateSession, token],
   );
 
+  const handleRenamed = useCallback((updatedDevice: Device) => {
+    setState((current) => ({ ...current, device: updatedDevice }));
+  }, []);
+
   if (state.loading && state.device === null) {
     return <LoadingState label={`Loading ${deviceId}`} />;
   }
@@ -342,21 +352,40 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
       <nav aria-label="Breadcrumb" className="breadcrumb">
         <Link href="/">Fleet</Link>
         <ChevronRight aria-hidden="true" size={11} />
-        <span className="mono">{device.device_id}</span>
+        <span className={device.display_name ? "" : "mono"}>
+          {device.display_name ?? device.device_id}
+        </span>
       </nav>
 
       <header className="page-header">
         <div>
           <div className="device-title-row">
-            <h1 className="page-title mono">{device.device_id}</h1>
+            <h1 className={device.display_name ? "page-title" : "page-title mono"}>
+              {device.display_name ?? device.device_id}
+            </h1>
             <StatusBadge status={device.status} />
           </div>
           <p className="page-description">
-            Observed device state and persisted telemetry
+            {device.display_name ? (
+              <>
+                <span className="mono">{device.device_id}</span> · Observed device
+                state and persisted telemetry
+              </>
+            ) : (
+              "Observed device state and persisted telemetry"
+            )}
           </p>
         </div>
         <div className="page-actions">
           <LiveConnectionIndicator state={liveConnection} />
+          {token ? (
+            <DeviceManagementActions
+              device={device}
+              onRenamed={handleRenamed}
+              onUnauthorized={invalidateSession}
+              token={token}
+            />
+          ) : null}
           <RefreshButton loading={state.loading} onClick={refresh} />
         </div>
       </header>

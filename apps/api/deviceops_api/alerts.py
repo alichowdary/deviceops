@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import math
 from typing import Any
 
 from sqlalchemy import select
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from .events import create_device_event, event_created_message
-from .models import Alert, AlertRule, Device
+from .models import Alert, AlertRule, Device, Telemetry
 from .realtime import realtime_hub
 
 
@@ -25,6 +26,7 @@ METRIC_LABELS = {
     "pressure_hpa": ("Pressure", "hPa"),
     "battery_pct": ("Battery", "%"),
     "rssi_dbm": ("Signal strength", "dBm"),
+    "uptime_s": ("Uptime", "s"),
 }
 OPERATOR_LABELS = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤"}
 OPEN_EVENT_SEVERITY = {
@@ -58,12 +60,40 @@ def _format_duration(seconds: int) -> str:
     return f"{seconds} {'second' if seconds == 1 else 'seconds'}"
 
 
-def rule_condition(rule: AlertRule) -> str:
+def _humanize_metric(metric: str) -> str:
+    return metric.replace("_", " ").capitalize()
+
+
+def _metric_presentation(
+    metric: str, device: Device | None
+) -> tuple[str, str]:
+    descriptor: object = None
+    if device is not None and isinstance(device.capabilities, dict):
+        telemetry = device.capabilities.get("telemetry")
+        if isinstance(telemetry, dict):
+            descriptor = telemetry.get(metric)
+    known_label, known_unit = METRIC_LABELS.get(
+        metric, (_humanize_metric(metric), "")
+    )
+    if not isinstance(descriptor, dict):
+        return known_label, known_unit
+    label = (
+        known_label
+        if metric == "rssi_dbm"
+        else descriptor.get("label") or known_label
+    )
+    unit = descriptor.get("unit")
+    return str(label), str(unit) if unit else ""
+
+
+def rule_condition(rule: AlertRule, device: Device | None = None) -> str:
     if rule.rule_type == "device_offline":
         return f"Offline for {_format_duration(rule.offline_after_seconds or 0)}"
-    label, unit = METRIC_LABELS[rule.metric or "temperature_c"]
+    metric = rule.metric or "metric"
+    label, unit = _metric_presentation(metric, device)
     operator = OPERATOR_LABELS[rule.operator or "gt"]
-    return f"{label} {operator} {rule.threshold:g} {unit}"
+    unit_suffix = f" {unit}" if unit else ""
+    return f"{label} {operator} {rule.threshold:g}{unit_suffix}"
 
 
 def alert_data(alert: Alert) -> dict[str, Any]:
@@ -176,6 +206,7 @@ def _open_alert(
     observed_at: datetime,
     observed_value: float | None,
 ) -> AlertLifecycleChange:
+    device = session.get(Device, rule.device_id)
     alert = Alert(
         owner_id=rule.owner_id,
         device_id=rule.device_id,
@@ -184,7 +215,7 @@ def _open_alert(
         rule_type=rule.rule_type,
         severity=rule.severity,
         status="active",
-        condition=rule_condition(rule),
+        condition=rule_condition(rule, device),
         metric=rule.metric,
         operator=rule.operator,
         threshold=rule.threshold,
@@ -290,7 +321,7 @@ def evaluate_metric_rules(
     session: Session,
     *,
     device_id: str,
-    metrics: Mapping[str, float | int | None],
+    metrics: Mapping[str, object],
     observed_at: datetime,
 ) -> list[AlertLifecycleChange]:
     rules = session.scalars(
@@ -306,13 +337,23 @@ def evaluate_metric_rules(
     changes: list[AlertLifecycleChange] = []
     for rule in rules:
         value = metrics.get(rule.metric or "")
-        if value is None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or rule.operator is None
+            or rule.threshold is None
+        ):
             continue
-        numeric_value = float(value)
+        try:
+            numeric_value = float(value)
+        except (OverflowError, ValueError):
+            continue
+        if not math.isfinite(numeric_value):
+            continue
         violated = _metric_condition(
-            rule.operator or "gt",
+            rule.operator,
             numeric_value,
-            rule.threshold or 0,
+            rule.threshold,
         )
         change = _reconcile_rule(
             session,
@@ -325,6 +366,21 @@ def evaluate_metric_rules(
         if change is not None:
             changes.append(change)
     return changes
+
+
+def telemetry_metric_values(telemetry: Telemetry) -> dict[str, object]:
+    values = dict(telemetry.additional_metrics or {})
+    values.update(
+        {
+            "temperature_c": telemetry.temperature_c,
+            "battery_pct": telemetry.battery_pct,
+            "humidity_pct": telemetry.humidity_pct,
+            "pressure_hpa": telemetry.pressure_hpa,
+            "rssi_dbm": telemetry.rssi_dbm,
+            "uptime_s": telemetry.uptime_s,
+        }
+    )
+    return values
 
 
 def evaluate_offline_rules(
@@ -381,15 +437,23 @@ def evaluate_offline_rules(
 def evaluate_committed_metric_sample(
     *,
     device_id: str,
-    metrics: Mapping[str, float | int | None],
+    telemetry_id: int,
     observed_at: datetime,
 ) -> list[AlertLifecycleChange]:
     try:
         with SessionLocal.begin() as session:
+            telemetry = session.get(Telemetry, telemetry_id)
+            if telemetry is None or telemetry.device_id != device_id:
+                logger.warning(
+                    "Metric alert sample unavailable: device=%s telemetry_id=%s",
+                    device_id,
+                    telemetry_id,
+                )
+                return []
             changes = evaluate_metric_rules(
                 session,
                 device_id=device_id,
-                metrics=metrics,
+                metrics=telemetry_metric_values(telemetry),
                 observed_at=observed_at,
             )
     except Exception:

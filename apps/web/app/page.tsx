@@ -36,7 +36,12 @@ function mergeDeviceSnapshots(snapshot: Device[], current: Device[] | null): Dev
     const liveDevice = currentById.get(device.device_id);
     return liveDevice &&
       isLaterTimestamp(liveDevice.last_seen_at, device.last_seen_at)
-      ? liveDevice
+      ? {
+          ...device,
+          status: liveDevice.status,
+          first_seen_at: liveDevice.first_seen_at,
+          last_seen_at: liveDevice.last_seen_at,
+        }
       : device;
   });
 }
@@ -107,6 +112,7 @@ export default function FleetPage() {
           }
         : {
             device_id: event.device_id,
+            display_name: null,
             status: event.type === "device_status" ? event.data.status : "unknown",
             first_seen_at: event.received_at,
             last_seen_at: event.received_at,

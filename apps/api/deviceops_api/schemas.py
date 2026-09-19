@@ -32,23 +32,18 @@ ALERT_OFFLINE_MIN_SECONDS = 5
 ALERT_OFFLINE_MAX_SECONDS = 604_800
 
 AlertRuleType = Literal["metric_threshold", "device_offline"]
-AlertMetric = Literal[
-    "temperature_c",
-    "humidity_pct",
-    "pressure_hpa",
-    "battery_pct",
-    "rssi_dbm",
-]
+AlertMetric = str
 AlertOperator = Literal["gt", "gte", "lt", "lte"]
 AlertSeverity = Literal["info", "warning", "critical"]
 AlertStatus = Literal["active", "resolved"]
 
-ALERT_METRIC_BOUNDS: dict[AlertMetric, tuple[float, float]] = {
+ALERT_METRIC_BOUNDS: dict[str, tuple[float | None, float | None]] = {
     "temperature_c": (-100, 200),
     "humidity_pct": (0, 100),
     "pressure_hpa": (0, 2000),
     "battery_pct": (0, 100),
     "rssi_dbm": (-200, 0),
+    "uptime_s": (0, None),
 }
 
 
@@ -315,9 +310,25 @@ class DeviceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     device_id: str
+    display_name: str | None
     status: str
     first_seen_at: datetime | None
     last_seen_at: datetime | None
+
+
+class DeviceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(max_length=80)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_display_name(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        return value.strip() or None
 
 
 class TelemetryRead(BaseModel):
@@ -356,7 +367,11 @@ class AlertRuleCreate(BaseModel):
     rule_type: AlertRuleType
     severity: AlertSeverity = "warning"
     enabled: StrictBool = True
-    metric: AlertMetric | None = None
+    metric: AlertMetric | None = Field(
+        default=None,
+        pattern=CAPABILITY_IDENTIFIER_PATTERN,
+        max_length=64,
+    )
     operator: AlertOperator | None = None
     threshold: float | None = None
     offline_after_seconds: int | None = Field(
@@ -393,12 +408,17 @@ class AlertRuleCreate(BaseModel):
                     "metric_threshold requires metric, operator, and threshold "
                     "and forbids offline_after_seconds"
                 )
-            lower, upper = ALERT_METRIC_BOUNDS[self.metric]
-            if not lower <= self.threshold <= upper:
-                raise ValueError(
-                    f"threshold for {self.metric} must be between "
-                    f"{lower:g} and {upper:g}"
-                )
+            bounds = ALERT_METRIC_BOUNDS.get(self.metric)
+            if bounds is not None:
+                lower, upper = bounds
+                if lower is not None and self.threshold < lower:
+                    raise ValueError(
+                        f"threshold for {self.metric} must be at least {lower:g}"
+                    )
+                if upper is not None and self.threshold > upper:
+                    raise ValueError(
+                        f"threshold for {self.metric} must be at most {upper:g}"
+                    )
         elif (
             self.offline_after_seconds is None
             or self.metric is not None

@@ -74,6 +74,8 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 $headers = @{ Authorization = "Bearer <access-token>" }
 Invoke-RestMethod -Headers $headers http://127.0.0.1:8000/api/devices
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>"
+$renameBody = @{ display_name = "Workshop sensor" } | ConvertTo-Json
+Invoke-RestMethod -Method Patch -ContentType "application/json" -Headers $headers -Body $renameBody "http://127.0.0.1:8000/api/devices/<owned-device-id>"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/telemetry?limit=100"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/capabilities"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/commands?limit=20"
@@ -85,6 +87,19 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alerts?limit=100"
 Telemetry is returned oldest-to-newest within the requested recent window. The
 default limit is 100 and the maximum is 500. Unknown devices return HTTP 404.
 Interactive OpenAPI documentation is at <http://127.0.0.1:8000/docs>.
+
+Device list and detail responses include nullable `display_name`. Owners can set,
+trim, replace, or clear it with `PATCH /api/devices/{device_id}`; the stable
+`device_id` is never changed. `DELETE /api/devices/{device_id}` permanently
+removes an owned registration with HTTP 204. Database cascades remove its
+telemetry, commands, events, rules, and alerts, so its stored credentials
+immediately stop authenticating. Unknown and cross-owner updates/deletes use the
+same privacy-preserving 404 response.
+
+Deletion does not publish broker tombstones for retained status/capability
+messages. Those messages are harmless: ingestion rejects them after the device
+row is gone, and generated UUID device IDs are never reused. This keeps database
+deletion independent of broker availability.
 
 ## Device capabilities
 
@@ -100,8 +115,8 @@ and does not create fleet Event history.
 privacy boundary. A registered device that has never advertised returns
 `{"capabilities":null,"updated_at":null}`. Accepted updates are broadcast on the
 existing authenticated WebSocket as `capabilities_updated`, without `owner_id`.
-The frontend currently recognizes and safely ignores this delta; dynamic device
-detail rendering belongs to the next phase.
+Device Detail uses the snapshot and delta to update its metrics and advertised
+protocol-v1 controls without discarding telemetry or command history.
 
 ## Persistent fleet events
 
@@ -127,18 +142,22 @@ and unowned devices or rules return the same HTTP 404 response, and `owner_id`
 is never returned. A device and its rules are deleted together through the
 database foreign-key cascade.
 
-`metric_threshold` rules require one of `temperature_c`, `humidity_pct`,
-`pressure_hpa`, `battery_pct`, or `rssi_dbm`; an operator (`gt`, `gte`, `lt`, or
-`lte`); and a finite, metric-bounded threshold. They forbid
-`offline_after_seconds`. `device_offline` rules require an offline duration from
-5 through 604800 seconds and forbid metric, operator, and threshold fields.
+`metric_threshold` rules require a current device capability manifest, a
+telemetry metric advertised as `number` or `integer`, an operator (`gt`, `gte`,
+`lt`, or `lte`), and a finite threshold. They forbid `offline_after_seconds`.
+Boolean, string, unadvertised, and capability-less metric rules are rejected.
+`device_offline` rules require an offline duration from 5 through 604800 seconds
+and forbid metric, operator, and threshold fields.
 Both types accept an optional trimmed 100-character name, severity `info`,
 `warning`, or `critical`, and a strict boolean `enabled` value.
 
 Metric threshold bounds are `-100..200` °C for temperature, `0..100` percent
 for humidity and battery, `0..2000` hPa for pressure, and `-200..0` dBm for
-RSSI. These broad bounds reject nonsensical configuration while leaving normal
-device operating ranges to the user.
+RSSI; uptime cannot be negative. These known product-valid bounds reject
+nonsensical configuration. Other advertised numeric metrics, such as
+`light_lux`, accept any finite threshold. The owner check precedes capability
+validation. Existing rules remain editable if a later manifest omits their
+metric, and device-offline rules remain available without capabilities.
 
 PATCH supports name, severity, enabled state, and the fields that belong to the
 existing rule type. Device, rule type, and metric are immutable after creation.
@@ -157,9 +176,11 @@ not include `owner_id`.
 
 Accepted authenticated telemetry evaluates enabled metric rules after the
 telemetry transaction commits. A true condition opens one alert, repeated true
-samples retain that alert, and a later false value resolves it. A missing or null
-metric leaves the current lifecycle unchanged. Evaluation runs in its own short
-transaction, so an alert failure cannot roll back accepted telemetry.
+samples retain that alert, and a later false value resolves it. Known telemetry
+fields and arbitrary values in `additional_metrics` share the same evaluator.
+A missing, null, non-numeric, boolean, or non-finite value leaves the current
+lifecycle unchanged and is never treated as zero. Evaluation runs in its own
+short transaction, so an alert failure cannot roll back accepted telemetry.
 
 Offline rules use persisted `offline_since` state and open only after a previously
 connected device remains explicitly offline for the configured duration. Unknown

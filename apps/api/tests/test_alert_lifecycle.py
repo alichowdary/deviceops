@@ -15,9 +15,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from deviceops_api.alert_evaluator import OfflineAlertEvaluator
-from deviceops_api.alerts import evaluate_metric_rules, evaluate_offline_rules
+from deviceops_api.alerts import (
+    evaluate_metric_rules,
+    evaluate_offline_rules,
+    telemetry_metric_values,
+)
 from deviceops_api.database import engine
-from deviceops_api.models import Alert, AlertRule, Device, DeviceEvent, User
+from deviceops_api.models import (
+    Alert,
+    AlertRule,
+    Device,
+    DeviceEvent,
+    Telemetry,
+    User,
+)
 from deviceops_api.routes.alert_rules import delete_alert_rule, update_alert_rule
 from deviceops_api.routes.alerts import get_alert, list_alerts
 from deviceops_api.schemas import AlertRead, AlertRuleUpdate
@@ -83,6 +94,8 @@ class AlertLifecycleTests(unittest.TestCase):
         device: Device | None = None,
         owner: User | None = None,
         name: str = "Warm room",
+        metric: str = "temperature_c",
+        threshold: float = 30,
     ) -> AlertRule:
         rule = AlertRule(
             owner_id=(owner or self.owner).id,
@@ -91,9 +104,9 @@ class AlertLifecycleTests(unittest.TestCase):
             rule_type="metric_threshold",
             severity="warning",
             enabled=True,
-            metric="temperature_c",
+            metric=metric,
             operator="gt",
-            threshold=30,
+            threshold=threshold,
         )
         self.session.add(rule)
         self.session.commit()
@@ -183,6 +196,103 @@ class AlertLifecycleTests(unittest.TestCase):
             [event.severity for event in events],
             ["warning", "success", "warning"],
         )
+
+    def test_additional_numeric_metric_opens_resolves_and_missing_is_unchanged(self) -> None:
+        self.device.capabilities = {
+            "telemetry": {
+                "light_lux": {
+                    "type": "number",
+                    "label": "Ambient light",
+                    "unit": "lux",
+                }
+            }
+        }
+        self.session.commit()
+        rule = self._metric_rule(
+            name="Bright room", metric="light_lux", threshold=250
+        )
+        sample = Telemetry(
+            device_id=self.device.device_id,
+            sequence=1,
+            sent_at=self.now,
+            received_at=self.now,
+            temperature_c=22,
+            battery_pct=80,
+            humidity_pct=None,
+            pressure_hpa=None,
+            rssi_dbm=-55,
+            uptime_s=120,
+            additional_metrics={
+                "light_lux": 275.5,
+                "motion_detected": True,
+            },
+        )
+        metrics = telemetry_metric_values(sample)
+        self.assertEqual(metrics["light_lux"], 275.5)
+
+        opened = evaluate_metric_rules(
+            self.session,
+            device_id=self.device.device_id,
+            metrics=metrics,
+            observed_at=self.now + timedelta(seconds=1),
+        )
+        self.session.commit()
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(self._alerts(rule.id)[0].status, "active")
+
+        for incompatible in ({}, {"light_lux": None}, {"light_lux": "240"}, {"light_lux": True}, {"light_lux": float("nan")}):
+            with self.subTest(metrics=incompatible):
+                changes = evaluate_metric_rules(
+                    self.session,
+                    device_id=self.device.device_id,
+                    metrics=incompatible,
+                    observed_at=self.now + timedelta(seconds=2),
+                )
+                self.session.commit()
+                self.assertEqual(changes, [])
+                self.assertEqual(self._alerts(rule.id)[0].status, "active")
+
+        resolved = evaluate_metric_rules(
+            self.session,
+            device_id=self.device.device_id,
+            metrics={"light_lux": 200},
+            observed_at=self.now + timedelta(seconds=3),
+        )
+        self.session.commit()
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(self._alerts(rule.id)[0].status, "resolved")
+        self.assertEqual(
+            self._alerts(rule.id)[0].condition,
+            "Ambient light > 250 lux",
+        )
+
+    def test_first_class_uptime_integer_metric_evaluates(self) -> None:
+        rule = self._metric_rule(
+            name="Long uptime", metric="uptime_s", threshold=60
+        )
+        sample = Telemetry(
+            device_id=self.device.device_id,
+            sequence=1,
+            sent_at=self.now,
+            received_at=self.now,
+            temperature_c=22,
+            battery_pct=None,
+            humidity_pct=45,
+            pressure_hpa=1013,
+            rssi_dbm=-60,
+            uptime_s=61,
+            additional_metrics=None,
+        )
+        changes = evaluate_metric_rules(
+            self.session,
+            device_id=self.device.device_id,
+            metrics=telemetry_metric_values(sample),
+            observed_at=self.now + timedelta(seconds=1),
+        )
+        self.session.commit()
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(self._alerts(rule.id)[0].observed_value, 61)
 
     def test_offline_duration_reconnect_and_never_connected_behavior(self) -> None:
         rule = self._offline_rule()

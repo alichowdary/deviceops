@@ -21,6 +21,7 @@ export interface Health {
 
 export interface Device {
   device_id: string;
+  display_name: string | null;
   status: DeviceStatus;
   first_seen_at: string | null;
   last_seen_at: string | null;
@@ -94,12 +95,7 @@ export interface PersistedEvent {
 
 export type AlertRuleType = "metric_threshold" | "device_offline";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type AlertMetric =
-  | "temperature_c"
-  | "humidity_pct"
-  | "pressure_hpa"
-  | "battery_pct"
-  | "rssi_dbm";
+export type AlertMetric = string;
 export type AlertOperator = "gt" | "gte" | "lt" | "lte";
 
 export interface AlertRule {

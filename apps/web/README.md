@@ -73,14 +73,24 @@ samples are not part of this page.
 The Alerts navigation item opens `/alerts`, where authenticated users monitor
 active alerts, inspect recently resolved history, and manage metric threshold and
 device-offline rules for their own devices. Conditions and observed values are
-human-readable. Persistent IDs deduplicate REST snapshots and live `alert_update`
-messages. The existing create, edit, enable/disable, and delete controls remain
-on the same dense operations page. External notifications are not implemented.
+human-readable. New metric rules derive their choices directly from the selected
+device manifest and offer every advertised `number` or `integer` metric while
+excluding boolean and string metrics. Offline rules remain available when no
+alertable capability is present. Existing metric rules retain
+their immutable metric while being edited. Persistent IDs deduplicate REST
+snapshots and live `alert_update` messages. The existing create, edit,
+enable/disable, and delete controls remain on the same dense operations page.
+External notifications are not implemented.
 
 Authenticated users can select **Add device** from Fleet to generate a device ID
 and one-time device secret. Copy both values before closing the credential
 dialog; the plaintext secret cannot be retrieved again. A registered device that
 has not connected yet appears as `Unknown` with `Never` for its seen timestamps.
+Device Detail can assign or clear an optional 80-character display name without
+changing the immutable device ID. Fleet and Alerts prefer the friendly name while
+retaining the ID. Its confirmed Delete Device action permanently removes the
+registration and all device-owned telemetry, commands, events, rules, and alerts,
+then returns to Fleet.
 
 If Node.js is not installed on Windows, run from the repository root with the
 official Node image instead. Dependencies remain in a temporary container

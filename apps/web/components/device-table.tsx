@@ -26,7 +26,7 @@ export function DeviceTable({ devices }: { devices: Device[] }) {
           <thead>
             <tr>
               <th scope="col">Status</th>
-              <th scope="col">Device ID</th>
+              <th scope="col">Device</th>
               <th scope="col">Last seen</th>
               <th scope="col">First seen</th>
               <th aria-label="Open device" scope="col" />
@@ -35,7 +35,7 @@ export function DeviceTable({ devices }: { devices: Device[] }) {
           <tbody>
             {devices.map((device) => (
               <tr
-                aria-label={`Open ${device.device_id}`}
+                aria-label={`Open ${device.display_name ?? device.device_id}`}
                 data-clickable="true"
                 key={device.device_id}
                 onClick={() => openDevice(device.device_id)}
@@ -48,7 +48,14 @@ export function DeviceTable({ devices }: { devices: Device[] }) {
                 tabIndex={0}
               >
                 <td><StatusBadge status={device.status} /></td>
-                <td><span className="mono table-primary">{device.device_id}</span></td>
+                <td>
+                  <span className={device.display_name ? "table-primary" : "mono table-primary"}>
+                    {device.display_name ?? device.device_id}
+                  </span>
+                  {device.display_name ? (
+                    <span className="mono table-secondary">{device.device_id}</span>
+                  ) : null}
+                </td>
                 <td title={formatExactTime(device.last_seen_at)}>
                   <span className="table-primary">{formatRelativeTime(device.last_seen_at)}</span>
                   {device.last_seen_at ? (

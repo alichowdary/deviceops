@@ -15,7 +15,12 @@ update compatibility. Phase 2 makes Device Detail render its metric cards,
 numeric charts, recent-sample columns, and existing protocol-v1 controls from
 that manifest, including live capability changes. Phase 3 adds distinct default
 and portable-sensor simulator profiles so different manifests drive different
-Device Detail layouts without profile-specific frontend code.
+Device Detail layouts without profile-specific frontend code. Milestone 10 Phase
+1 adds optional friendly device names, owner-controlled permanent device
+deletion, capability-aware alert metric selection, and wrapped metric-grid
+correctness while preserving stable device IDs. Metric-threshold alerts accept
+any finite numeric or integer telemetry value advertised by the current device
+manifest, including additional metrics.
 
 The implemented flow is:
 
@@ -76,6 +81,11 @@ $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
 python -m device_simulator --device-id <registered-device-id> --interval 5
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
+
+Owners may assign an optional display name for console readability. The
+generated device ID remains the immutable MQTT, database, API, relationship, and
+URL identity. Device Detail also provides explicit confirmed deletion, which
+permanently removes the registration and its device-owned history.
 
 ## ESP32 reference firmware
 

@@ -11,6 +11,7 @@ import { RefreshButton } from "@/components/refresh-button";
 import { LoadingState, StatePanel } from "@/components/state-panel";
 import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
 import { apiDelete, apiGet, apiPatch } from "@/lib/api";
+import { deviceLabelForId } from "@/lib/devices";
 import { formatExactTime, formatRelativeTime } from "@/lib/format";
 import type {
   Alert,
@@ -42,13 +43,18 @@ const initialState: AlertsState = {
   error: null,
 };
 
-const metricLabels: Record<AlertMetric, { label: string; unit: string }> = {
+const metricLabels: Record<string, { label: string; unit: string }> = {
   temperature_c: { label: "Temperature", unit: "°C" },
   humidity_pct: { label: "Humidity", unit: "%" },
   pressure_hpa: { label: "Pressure", unit: "hPa" },
   battery_pct: { label: "Battery", unit: "%" },
   rssi_dbm: { label: "Signal strength", unit: "dBm" },
+  uptime_s: { label: "Uptime", unit: "s" },
 };
+
+function readableMetricLabel(metric: AlertMetric): string {
+  return metric.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
 
 const operatorLabels: Record<AlertOperator, string> = {
   gt: ">",
@@ -88,7 +94,9 @@ function ruleCondition(rule: AlertRule): string {
     return "Invalid metric rule";
   }
   const metric = metricLabels[rule.metric];
-  return `${metric.label} ${operatorLabels[rule.operator]} ${rule.threshold} ${metric.unit}`;
+  const label = metric?.label ?? readableMetricLabel(rule.metric);
+  const unit = metric?.unit ? ` ${metric.unit}` : "";
+  return `${label} ${operatorLabels[rule.operator]} ${rule.threshold}${unit}`;
 }
 
 function sortRules(rules: AlertRule[]): AlertRule[] {
@@ -115,11 +123,20 @@ function mergeAlerts(incoming: Alert[], current: Alert[] | null): Alert[] {
 
 function observedValue(alert: Alert): string | null {
   if (alert.observed_value === null) return null;
-  const unit = alert.metric === null ? "" : ` ${metricLabels[alert.metric].unit}`;
+  const knownUnit = alert.metric === null ? null : metricLabels[alert.metric]?.unit;
+  const unit = knownUnit ? ` ${knownUnit}` : "";
   return `${alert.observed_value}${unit}`;
 }
 
-function AlertTable({ alerts, resolved }: { alerts: Alert[]; resolved: boolean }) {
+function AlertTable({
+  alerts,
+  devices,
+  resolved,
+}: {
+  alerts: Alert[];
+  devices: Device[];
+  resolved: boolean;
+}) {
   return (
     <div className="data-table-wrap">
       <table className="data-table alert-instances-table">
@@ -151,10 +168,10 @@ function AlertTable({ alerts, resolved }: { alerts: Alert[]; resolved: boolean }
                 </td>
                 <td>
                   <Link
-                    className="alert-device-link mono"
+                    className="alert-device-link"
                     href={`/devices/${encodeURIComponent(alert.device_id)}`}
                   >
-                    {alert.device_id}
+                    {deviceLabelForId(devices, alert.device_id)}
                   </Link>
                 </td>
                 <td>
@@ -400,7 +417,7 @@ export default function AlertsPage() {
             No active alert conditions
           </div>
         ) : (
-          <AlertTable alerts={activeAlerts} resolved={false} />
+          <AlertTable alerts={activeAlerts} devices={devices} resolved={false} />
         )}
       </section>
 
@@ -412,7 +429,7 @@ export default function AlertsPage() {
         {resolvedAlerts.length === 0 ? (
           <div className="alert-empty-row">No resolved alert history yet.</div>
         ) : (
-          <AlertTable alerts={resolvedAlerts} resolved />
+          <AlertTable alerts={resolvedAlerts} devices={devices} resolved />
         )}
       </section>
 
@@ -480,10 +497,10 @@ export default function AlertsPage() {
                       </td>
                       <td>
                         <Link
-                          className="alert-device-link mono"
+                          className="alert-device-link"
                           href={`/devices/${encodeURIComponent(rule.device_id)}`}
                         >
-                          {rule.device_id}
+                          {deviceLabelForId(devices, rule.device_id)}
                         </Link>
                       </td>
                       <td><span className="alert-condition">{ruleCondition(rule)}</span></td>
