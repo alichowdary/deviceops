@@ -12,7 +12,7 @@ import signal
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Sequence
 
 import paho.mqtt.client as mqtt
 
@@ -24,7 +24,8 @@ from .mqtt_auth import (
     parse_authenticated_envelope,
     verify_authenticated_envelope,
 )
-from .telemetry import TelemetryGenerator
+from .commands import SimulatorCommandState, execute_command
+from .profiles import PROFILE_NAMES, SimulatorProfile, get_profile
 
 
 CONNECT_TIMEOUT_S = 10
@@ -60,7 +61,7 @@ def device_id(value: str) -> str:
     return value
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Publish simulated DeviceOps telemetry"
     )
@@ -87,7 +88,13 @@ def parse_args() -> argparse.Namespace:
         default=5.0,
         help="seconds between telemetry messages (default: 5)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--profile",
+        choices=PROFILE_NAMES,
+        default="default",
+        help="simulated device profile (default: default)",
+    )
+    return parser.parse_args(arguments)
 
 
 def _utc_timestamp() -> str:
@@ -107,60 +114,13 @@ def _validate_utc_timestamp(value: object, field_name: str) -> None:
         raise ValueError(f"{field_name} must include a UTC offset")
 
 
-def build_capability_manifest(device_id_value: str) -> dict[str, Any]:
-    """Return the simulator's protocol-v1 capability declaration."""
-    return {
-        "protocol_version": 1,
-        "capabilities_version": 1,
-        "device_id": device_id_value,
-        "sent_at": _utc_timestamp(),
-        "telemetry": {
-            "temperature_c": {
-                "type": "number",
-                "label": "Temperature",
-                "unit": "°C",
-            },
-            "battery_pct": {
-                "type": "number",
-                "label": "Battery",
-                "unit": "%",
-            },
-            "rssi_dbm": {
-                "type": "integer",
-                "label": "RSSI",
-                "unit": "dBm",
-            },
-            "uptime_s": {
-                "type": "integer",
-                "label": "Uptime",
-                "unit": "s",
-            },
-        },
-        "commands": {
-            "set_led": {
-                "label": "LED",
-                "arguments": {
-                    "on": {"type": "boolean", "label": "On"}
-                },
-            },
-            "set_reporting_interval": {
-                "label": "Reporting interval",
-                "arguments": {
-                    "interval_s": {
-                        "type": "number",
-                        "label": "Interval",
-                        "unit": "s",
-                        "min": 1,
-                        "max": 60,
-                    }
-                },
-            },
-            "request_diagnostics": {
-                "label": "Request diagnostics",
-                "arguments": {},
-            },
-        },
-    }
+def build_capability_manifest(
+    device_id_value: str, profile_name: str = "default"
+) -> dict[str, Any]:
+    """Return a profile's protocol-v1 capability declaration."""
+    return get_profile(profile_name).build_manifest(
+        device_id_value, _utc_timestamp()
+    )
 
 
 def run(
@@ -169,7 +129,9 @@ def run(
     broker_host: str,
     broker_port_value: int,
     device_secret: str,
+    profile_name: str = "default",
 ) -> int:
+    profile: SimulatorProfile = get_profile(profile_name)
     telemetry_topic = f"deviceops/v1/devices/{device_id_value}/telemetry"
     status_topic = f"deviceops/v1/devices/{device_id_value}/status"
     command_topic = f"deviceops/v1/devices/{device_id_value}/commands"
@@ -179,12 +141,10 @@ def run(
     subscribed = threading.Event()
     connection_error: list[str] = []
 
-    generator = TelemetryGenerator(device_id_value)
+    generator = profile.create_generator(device_id_value)
     started_at = time.monotonic()
     state_changed = threading.Condition()
-    reporting_interval = interval
-    led_on = False
-    last_metrics: dict[str, Any] | None = None
+    command_state = SimulatorCommandState(reporting_interval=interval)
     recent_acknowledgements: OrderedDict[str, str] = OrderedDict()
     signing_key = derive_signing_key(device_secret)
     session_id = generate_session_id()
@@ -212,7 +172,7 @@ def run(
 
     def publish_capabilities(connected_client: mqtt.Client) -> None:
         body = json.dumps(
-            build_capability_manifest(device_id_value),
+            profile.build_manifest(device_id_value, _utc_timestamp()),
             separators=(",", ":"),
         )
         payload = create_authenticated_envelope(
@@ -269,8 +229,6 @@ def run(
             )
 
     def process_command(body: str) -> None:
-        nonlocal led_on, reporting_interval
-
         try:
             decoded = json.loads(body)
         except (json.JSONDecodeError, TypeError) as exc:
@@ -329,52 +287,32 @@ def run(
             if not isinstance(arguments, dict):
                 raise ValueError("arguments must be an object")
 
+            with state_changed:
+                previous_interval = command_state.reporting_interval
+                result = execute_command(
+                    profile,
+                    command_type,
+                    arguments,
+                    command_state,
+                    int(time.monotonic() - started_at),
+                )
+                if command_state.reporting_interval != previous_interval:
+                    state_changed.notify_all()
+
             if command_type == "set_led":
-                if set(arguments) != {"on"} or not isinstance(
-                    arguments.get("on"), bool
-                ):
-                    raise ValueError("set_led requires exactly {'on': boolean}")
-                with state_changed:
-                    led_on = arguments["on"]
                 print(
-                    f"command {command_id}: LED {'ON' if led_on else 'OFF'}",
+                    f"command {command_id}: LED "
+                    f"{'ON' if command_state.led_on else 'OFF'}",
                     flush=True,
                 )
-                result = {"on": led_on}
             elif command_type == "set_reporting_interval":
-                requested_interval = arguments.get("interval_s")
-                if (
-                    set(arguments) != {"interval_s"}
-                    or isinstance(requested_interval, bool)
-                    or not isinstance(requested_interval, (int, float))
-                    or not 1 <= requested_interval <= 60
-                ):
-                    raise ValueError(
-                        "set_reporting_interval requires exactly "
-                        "{'interval_s': number from 1 to 60}"
-                    )
-                with state_changed:
-                    reporting_interval = float(requested_interval)
-                    state_changed.notify_all()
                 print(
                     f"command {command_id}: reporting interval -> "
-                    f"{reporting_interval:g}s",
+                    f"{command_state.reporting_interval:g}s",
                     flush=True,
                 )
-                result = {"interval_s": reporting_interval}
             elif command_type == "request_diagnostics":
-                if arguments:
-                    raise ValueError("request_diagnostics arguments must be empty")
-                with state_changed:
-                    result = {
-                        "led_on": led_on,
-                        "reporting_interval_s": reporting_interval,
-                        "uptime_s": int(time.monotonic() - started_at),
-                        "telemetry": dict(last_metrics) if last_metrics else None,
-                    }
                 print(f"command {command_id}: diagnostics collected", flush=True)
-            else:
-                raise ValueError("unsupported command type")
         except ValueError as exc:
             error = str(exc)
             print(f"command {command_id}: failed: {error}", file=sys.stderr, flush=True)
@@ -479,7 +417,8 @@ def run(
     client.on_message = on_message
 
     print(
-        f"Connecting {device_id_value} to mqtt://{broker_host}:{broker_port_value} ...",
+        f"Connecting {device_id_value} ({profile.name}) to "
+        f"mqtt://{broker_host}:{broker_port_value} ...",
         flush=True,
     )
     try:
@@ -513,7 +452,8 @@ def run(
         return 1
 
     print(
-        f"Connected; status=online, capabilities=published, interval={interval:g}s; "
+        f"Connected; profile={profile.name}, status=online, "
+        f"capabilities=published, interval={interval:g}s; "
         f"subscribed to {command_topic} (QoS 1)",
         flush=True,
     )
@@ -523,7 +463,7 @@ def run(
         while True:
             payload = generator.next_message()
             with state_changed:
-                last_metrics = dict(payload["metrics"])
+                command_state.last_metrics = dict(payload["metrics"])
             encoded_payload = json.dumps(payload, separators=(",", ":"))
             authenticated_payload = create_authenticated_envelope(
                 body=encoded_payload,
@@ -552,7 +492,7 @@ def run(
                 f"uptime={metrics['uptime_s']}s"
             )
             with state_changed:
-                state_changed.wait(timeout=reporting_interval)
+                state_changed.wait(timeout=command_state.reporting_interval)
     except KeyboardInterrupt:
         print("\nShutdown requested; publishing status=offline ...")
     except RuntimeError as exc:
@@ -592,5 +532,6 @@ def main() -> None:
             args.broker_host,
             args.broker_port,
             device_secret,
+            args.profile,
         )
     )

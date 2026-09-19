@@ -3,8 +3,10 @@
 This small Python process behaves like one registered DeviceOps device. It
 connects to Mosquitto, publishes authenticated, gradually changing telemetry,
 maintains an authenticated retained online/offline status, and publishes an
-authenticated retained capability manifest after each connection. It also verifies
-and executes the three version 1 commands documented in
+authenticated retained capability manifest after each connection. Selectable
+profiles let it represent materially different devices while keeping the
+existing behavior as the default. It also verifies and executes the supported
+version 1 commands documented in
 [`../contracts/mqtt.md`](../contracts/mqtt.md).
 
 ## Install
@@ -41,23 +43,40 @@ python -m device_simulator --device-id <registered-device-id>
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
-`--device-id` is required. The telemetry interval defaults to five seconds, the
-broker host to `localhost`, and the broker TCP port to `1883`. Override them with
-standard CLI options:
+`--device-id` is required. The `default` profile, five-second telemetry interval,
+`localhost` broker host, and broker TCP port `1883` are used unless overridden:
 
 ```powershell
 python -m device_simulator --device-id <registered-device-id> --interval 2.5 --broker-host localhost --broker-port 1883
 ```
+
+Choose the alternate portable sensor with `--profile portable-sensor`:
+
+```powershell
+python -m device_simulator --device-id <registered-device-id> --profile portable-sensor
+```
+
+The available profiles are:
+
+- `default`: preserves the original simulator behavior. It emits temperature,
+  battery, RSSI, and uptime, and supports LED, reporting-interval, and
+  diagnostics commands.
+- `portable-sensor`: emits temperature, battery, ambient light, motion state,
+  RSSI, and uptime. It supports diagnostics only. Ambient light and motion are
+  additional protocol metrics; motion is boolean and therefore is not charted
+  by the capability-driven console.
+
+Run `python -m device_simulator --help` to see all CLI options.
 
 Startup fails before connecting if `DEVICEOPS_DEVICE_SECRET` is absent or empty.
 The secret is hashed locally to derive the MQTT signing key and is never sent in
 an MQTT payload.
 
 After connecting, the simulator subscribes to its device-specific command topic
-with QoS 1. Supported commands turn its internal LED state on or off, change the
-running telemetry interval within 1–60 seconds, and return diagnostics. State
-changes and failures are printed in the simulator terminal. Acknowledgements use
-QoS 1 and are not retained.
+with QoS 1. The selected profile controls which commands are advertised and
+accepted. An unadvertised command receives a normal failed acknowledgement
+instead of changing simulator state. State changes and failures are printed in
+the simulator terminal. Acknowledgements use QoS 1 and are not retained.
 
 The MQTT callback and telemetry loop share LED, interval, and diagnostic state
 through a condition lock. Changing the interval wakes the telemetry loop so the
@@ -70,10 +89,9 @@ and uses it for its Last Will, status, telemetry, acknowledgements, and command
 verification. Automatic reconnects within that process keep the same session ID;
 restarting the simulator creates a new one.
 
-Its capability manifest declares the telemetry it actually emits: temperature,
-battery, RSSI, and uptime. It declares LED, reporting-interval, and diagnostics
-commands, uses QoS 1 with retention, and is re-signed with the current session
-and a fresh UTC `sent_at` after every successful command-topic subscription.
+Its capability manifest declares the telemetry and commands of the selected
+profile, uses QoS 1 with retention, and is re-signed with the current session and
+a fresh UTC `sent_at` after every successful command-topic subscription.
 
 Press Ctrl+C for a clean shutdown. The simulator publishes an authenticated,
 retained `offline` envelope before disconnecting. If the process or network

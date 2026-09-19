@@ -49,3 +49,38 @@ class TelemetryGenerator:
                 "uptime_s": int(time.monotonic() - self._started_at),
             },
         }
+
+
+@dataclass
+class PortableTelemetryGenerator:
+    """Deterministic telemetry for a portable light and motion sensor."""
+
+    device_id: str
+    _sequence: int = field(default=0, init=False)
+    _battery_pct: float = field(default=78.0, init=False)
+    _started_at: float = field(default_factory=time.monotonic, init=False)
+
+    def next_message(self) -> dict[str, Any]:
+        self._sequence += 1
+
+        temperature_c = 22.6 + ((self._sequence - 1) % 9) * 0.1
+        self._battery_pct = max(0.0, self._battery_pct - 0.02)
+        light_lux = 180.0 + ((self._sequence - 1) % 12) * 17.5
+        motion_detected = self._sequence % 6 in {1, 2}
+        rssi_dbm = -63 + ((self._sequence - 1) % 5)
+        sent_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+        return {
+            "protocol_version": 1,
+            "device_id": self.device_id,
+            "sent_at": sent_at.replace("+00:00", "Z"),
+            "sequence": self._sequence,
+            "metrics": {
+                "temperature_c": round(temperature_c, 1),
+                "battery_pct": round(self._battery_pct, 2),
+                "light_lux": round(light_lux, 1),
+                "motion_detected": motion_detected,
+                "rssi_dbm": rssi_dbm,
+                "uptime_s": int(time.monotonic() - self._started_at),
+            },
+        }

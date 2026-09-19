@@ -13,7 +13,9 @@ device status. Milestone 9 Phase 1 adds signed, retained device capability
 manifests, latest-manifest persistence, an owner-scoped REST read, and realtime
 update compatibility. Phase 2 makes Device Detail render its metric cards,
 numeric charts, recent-sample columns, and existing protocol-v1 controls from
-that manifest, including live capability changes.
+that manifest, including live capability changes. Phase 3 adds distinct default
+and portable-sensor simulator profiles so different manifests drive different
+Device Detail layouts without profile-specific frontend code.
 
 The implemented flow is:
 
