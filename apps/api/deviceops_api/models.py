@@ -101,6 +101,7 @@ class DeviceEvent(Base):
             "event_type",
             "occurred_at",
         ),
+        Index("ix_device_events_occurred_at", "occurred_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -308,6 +309,7 @@ class Telemetry(Base):
     __tablename__ = "telemetry"
     __table_args__ = (
         Index("ix_telemetry_device_received_at", "device_id", "received_at"),
+        Index("ix_telemetry_received_at", "received_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

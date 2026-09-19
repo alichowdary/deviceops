@@ -51,7 +51,9 @@ The ingestion responsibility can be separated later if independent scaling is
 needed. The WebSocket hub is also in process, so this single-worker constraint
 keeps ingestion and connected browsers on the same event stream. The one-second
 offline-alert evaluator also runs in this process; multi-worker coordination is
-intentionally outside this local milestone.
+intentionally outside this local milestone. The same lifespan starts one
+retention cleanup shortly after startup and repeats it hourly. This background
+cleanup also assumes the documented single-process deployment.
 
 ## Run a device
 
@@ -87,6 +89,13 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alerts?limit=100"
 Telemetry is returned oldest-to-newest within the requested recent window. The
 default limit is 100 and the maximum is 500. Unknown devices return HTTP 404.
 Interactive OpenAPI documentation is at <http://127.0.0.1:8000/docs>.
+
+Telemetry is retained for a rolling three days using its server receipt time.
+Rows exactly at the cutoff remain. Device Events use the same rolling three-day
+policy based on `occurred_at`. The Device Detail Recent Samples table showing
+the newest 10 rows is a UI display limit and is separate from database
+retention. Accounts, devices, commands, alert rules, and active or resolved
+alerts currently have no equivalent three-day purge.
 
 Device list and detail responses include nullable `display_name`. Owners can set,
 trim, replace, or clear it with `PATCH /api/devices/{device_id}`; the stable

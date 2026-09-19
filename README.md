@@ -56,6 +56,11 @@ The `/alerts` page shows active and recently resolved alerts alongside per-devic
 metric threshold and offline-duration rule definitions. Alert state updates live,
 persists across refreshes, and is also recorded in the Events feed.
 
+PostgreSQL retains telemetry and device Events for a rolling three days. The
+Recent Samples table's newest-10 display is only a UI limit, not the retention
+period. Accounts, devices, commands, alert rules, and active or resolved alerts
+do not currently have an equivalent three-day purge.
+
 ```powershell
 cd apps\web
 npm install

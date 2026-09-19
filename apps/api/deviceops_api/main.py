@@ -16,6 +16,7 @@ from .config import settings
 from .database import database_is_reachable, engine
 from .mqtt import mqtt_ingestor
 from .realtime import realtime_hub
+from .retention import retention_cleaner
 from .routes.alert_rules import router as alert_rules_router
 from .routes.alerts import router as alerts_router
 from .routes.auth import router as auth_router
@@ -40,9 +41,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await realtime_hub.start()
     mqtt_ingestor.start()
     await offline_alert_evaluator.start()
+    await retention_cleaner.start()
     try:
         yield
     finally:
+        await retention_cleaner.stop()
         mqtt_ingestor.stop()
         await offline_alert_evaluator.stop()
         await realtime_hub.stop()
