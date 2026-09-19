@@ -74,6 +74,7 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-de
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/telemetry?limit=100"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/commands?limit=20"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/events?limit=100"
+Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alert-rules"
 ```
 
 Telemetry is returned oldest-to-newest within the requested recent window. The
@@ -87,6 +88,40 @@ default limit is 100 and the maximum is 200. Optional `device_id`, `event_type`,
 and `severity` query parameters narrow the feed. Filtering by an unknown or
 unowned device returns the same HTTP 404 privacy boundary used by device routes.
 Responses never include `owner_id`.
+
+## Alert rule management
+
+Authenticated users manage persistent rule definitions at:
+
+- `GET /api/alert-rules`
+- `POST /api/alert-rules`
+- `GET /api/alert-rules/{rule_id}`
+- `PATCH /api/alert-rules/{rule_id}`
+- `DELETE /api/alert-rules/{rule_id}`
+
+The list endpoint accepts optional `device_id`, `enabled`, `rule_type`, and
+`severity` filters. Every query is scoped to the authenticated owner. Unknown
+and unowned devices or rules return the same HTTP 404 response, and `owner_id`
+is never returned. A device and its rules are deleted together through the
+database foreign-key cascade.
+
+`metric_threshold` rules require one of `temperature_c`, `humidity_pct`,
+`pressure_hpa`, `battery_pct`, or `rssi_dbm`; an operator (`gt`, `gte`, `lt`, or
+`lte`); and a finite, metric-bounded threshold. They forbid
+`offline_after_seconds`. `device_offline` rules require an offline duration from
+5 through 604800 seconds and forbid metric, operator, and threshold fields.
+Both types accept an optional trimmed 100-character name, severity `info`,
+`warning`, or `critical`, and a strict boolean `enabled` value.
+
+Metric threshold bounds are `-100..200` °C for temperature, `0..100` percent
+for humidity and battery, `0..2000` hPa for pressure, and `-200..0` dBm for
+RSSI. These broad bounds reject nonsensical configuration while leaving normal
+device operating ranges to the user.
+
+PATCH supports name, severity, enabled state, and the fields that belong to the
+existing rule type. Device, rule type, and metric are immutable after creation.
+Phase 2 persists and manages these definitions only; it does not evaluate rules,
+open alert instances, or send notifications.
 
 The persistent event types and severities are:
 

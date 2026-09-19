@@ -1356,6 +1356,221 @@ a:focus-visible,
   font-size: 9px;
 }
 
+.alert-phase-note {
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  border: 1px solid #31506a;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: #111d27;
+  color: #a9c6dc;
+  font-size: 11px;
+}
+
+.alert-rules-table {
+  min-width: 980px;
+}
+
+.alert-rules-table td {
+  height: 58px;
+}
+
+.rule-state,
+.rule-severity {
+  display: inline-flex;
+  padding: 2px 6px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 17px;
+  text-transform: capitalize;
+}
+
+.rule-state-enabled {
+  border-color: #285f46;
+  background: var(--online-muted);
+  color: #83dcad;
+}
+
+.rule-state-disabled {
+  border-color: #424c54;
+  background: var(--unknown-muted);
+  color: #aab2b9;
+}
+
+.rule-severity-info {
+  border-color: #315d7c;
+  background: var(--accent-muted);
+  color: #9bcdf2;
+}
+
+.rule-severity-warning {
+  border-color: #66542d;
+  background: #2b2517;
+  color: var(--warning);
+}
+
+.rule-severity-critical {
+  border-color: #683235;
+  background: var(--offline-muted);
+  color: #f59494;
+}
+
+.alert-device-link {
+  color: var(--accent);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.alert-device-link:hover {
+  text-decoration: underline;
+}
+
+.alert-condition {
+  color: #d4dbe0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.alert-actions-heading {
+  text-align: right !important;
+}
+
+.alert-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.table-action {
+  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.table-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.table-action:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.table-action-danger:hover:not(:disabled) {
+  border-color: #683235;
+  background: var(--offline-muted);
+  color: #f59494;
+}
+
+.alert-rule-dialog {
+  width: min(100%, 620px);
+}
+
+.alert-rule-form {
+  padding-bottom: 5px;
+}
+
+.alert-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.alert-form-field {
+  display: grid;
+  gap: 5px;
+}
+
+.alert-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.alert-form-field > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 620;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.alert-form-field small {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.alert-form-field input,
+.alert-form-field select {
+  width: 100%;
+  height: 35px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: #0d1216;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.alert-form-field input:focus,
+.alert-form-field select:focus {
+  border-color: #4f8bb8;
+  outline: 1px solid #4f8bb8;
+}
+
+.alert-form-field input:disabled,
+.alert-form-field select:disabled {
+  color: var(--faint);
+  opacity: 0.72;
+}
+
+.alert-duration {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
+  gap: 12px;
+}
+
+.alert-enabled-field {
+  min-height: 35px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.alert-enabled-field input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #3477a9;
+}
+
+.alert-enabled-field span {
+  display: grid;
+}
+
+.alert-enabled-field small {
+  color: var(--faint);
+  font-size: 9px;
+}
+
 @media (max-width: 1040px) {
   .command-grid {
     grid-template-columns: 1fr;
@@ -1483,6 +1698,15 @@ a:focus-visible,
     display: flex;
     gap: 8px;
     text-align: left;
+  }
+
+  .alert-form-grid,
+  .alert-duration {
+    grid-template-columns: 1fr;
+  }
+
+  .alert-enabled-field {
+    align-self: auto;
   }
 }
 

@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Device
+from .models import AlertRule, Device
 
 
 def get_owned_device_or_404(
@@ -24,3 +24,20 @@ def get_owned_device_or_404(
             detail="Device not found",
         )
     return device
+
+
+def get_owned_alert_rule_or_404(
+    session: Session, rule_id: int, owner_id: int
+) -> AlertRule:
+    rule = session.scalar(
+        select(AlertRule).where(
+            AlertRule.id == rule_id,
+            AlertRule.owner_id == owner_id,
+        )
+    )
+    if rule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert rule not found",
+        )
+    return rule

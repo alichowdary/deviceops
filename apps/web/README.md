@@ -62,6 +62,12 @@ type, and severity filters apply to both the REST snapshot and live updates.
 Persistent IDs deduplicate snapshot and WebSocket delivery. Alerts and routine
 telemetry samples are not part of this page.
 
+The Alerts navigation item opens `/alerts`, where authenticated users create and
+manage metric threshold and device-offline rules for their own devices. The page
+shows human-readable conditions and supports editing, enabling/disabling, and
+deleting rules. Rule evaluation, alert instances, and notifications are not part
+of this phase.
+
 Authenticated users can select **Add device** from Fleet to generate a device ID
 and one-time device secret. Copy both values before closing the credential
 dialog; the plaintext secret cannot be retrieved again. A registered device that

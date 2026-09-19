@@ -7,6 +7,9 @@ Next.js fleet console with live updates and device-specific remote commands, and
 a verified ESP32-S3 reference firmware project. Milestone 7 adds user
 authentication, per-user device ownership, one-time device registration
 credentials, authenticated device messages, and owner-isolated live updates.
+Milestone 8 adds a persistent fleet activity feed and owner-scoped alert rule
+configuration. Alert evaluation and active alert instances are not implemented
+in Phase 2.
 
 The implemented flow is:
 
@@ -38,6 +41,9 @@ updates their persisted status from device acknowledgements. The explicit
 Refresh control remains available. The `/events` page provides a persistent,
 owner-scoped activity feed for registration, connectivity transitions, and
 command lifecycle events without duplicating routine telemetry.
+The `/alerts` page manages per-device metric threshold and offline-duration rule
+definitions. Rules can be enabled, disabled, edited, and deleted; this phase
+stores configuration only and does not yet evaluate devices against it.
 
 ```powershell
 cd apps\web
@@ -182,6 +188,7 @@ sensors through the same ingestion and console paths, and includes the verified
 ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
 device registration credentials, authenticated MQTT envelopes, and isolated
 realtime delivery. Milestone 8 Phase 1 adds persistent fleet Events through REST,
-owner-isolated WebSockets, and the web console. Automatic capability discovery,
-broker-level MQTT authentication and TLS, Alerts, OTA updates, and cloud
-infrastructure remain future work.
+owner-isolated WebSockets, and the web console. Phase 2 adds persistent alert
+rule management without evaluation or notifications. Automatic capability
+discovery, broker-level MQTT authentication and TLS, alert evaluation, OTA
+updates, and cloud infrastructure remain future work.

@@ -90,6 +90,63 @@ export interface PersistedEvent {
   details: Record<string, unknown>;
 }
 
+export type AlertRuleType = "metric_threshold" | "device_offline";
+export type AlertSeverity = "info" | "warning" | "critical";
+export type AlertMetric =
+  | "temperature_c"
+  | "humidity_pct"
+  | "pressure_hpa"
+  | "battery_pct"
+  | "rssi_dbm";
+export type AlertOperator = "gt" | "gte" | "lt" | "lte";
+
+export interface AlertRule {
+  id: number;
+  device_id: string;
+  name: string | null;
+  rule_type: AlertRuleType;
+  severity: AlertSeverity;
+  enabled: boolean;
+  metric: AlertMetric | null;
+  operator: AlertOperator | null;
+  threshold: number | null;
+  offline_after_seconds: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AlertRuleCreateBase {
+  device_id: string;
+  name?: string | null;
+  severity: AlertSeverity;
+  enabled: boolean;
+}
+
+export interface MetricThresholdRuleCreate extends AlertRuleCreateBase {
+  rule_type: "metric_threshold";
+  metric: AlertMetric;
+  operator: AlertOperator;
+  threshold: number;
+}
+
+export interface DeviceOfflineRuleCreate extends AlertRuleCreateBase {
+  rule_type: "device_offline";
+  offline_after_seconds: number;
+}
+
+export type AlertRuleCreate =
+  | MetricThresholdRuleCreate
+  | DeviceOfflineRuleCreate;
+
+export interface AlertRuleUpdate {
+  name?: string | null;
+  severity?: AlertSeverity;
+  enabled?: boolean;
+  operator?: AlertOperator;
+  threshold?: number;
+  offline_after_seconds?: number;
+}
+
 export interface TelemetryEvent {
   type: "telemetry";
   device_id: string;

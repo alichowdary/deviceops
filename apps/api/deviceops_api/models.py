@@ -1,4 +1,4 @@
-"""Database models for users, devices, telemetry, commands, and fleet events."""
+"""Database models for DeviceOps users, devices, data, events, and rules."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -108,6 +110,88 @@ class DeviceEvent(Base):
     )
     details: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict
+    )
+
+
+class AlertRule(Base):
+    __tablename__ = "alert_rules"
+    __table_args__ = (
+        CheckConstraint(
+            "rule_type IN ('metric_threshold', 'device_offline')",
+            name="ck_alert_rules_type",
+        ),
+        CheckConstraint(
+            "severity IN ('info', 'warning', 'critical')",
+            name="ck_alert_rules_severity",
+        ),
+        CheckConstraint(
+            "metric IS NULL OR metric IN ('temperature_c', 'humidity_pct', "
+            "'pressure_hpa', 'battery_pct', 'rssi_dbm')",
+            name="ck_alert_rules_metric",
+        ),
+        CheckConstraint(
+            "operator IS NULL OR operator IN ('gt', 'gte', 'lt', 'lte')",
+            name="ck_alert_rules_operator",
+        ),
+        CheckConstraint(
+            "((rule_type = 'metric_threshold' AND metric IS NOT NULL AND "
+            "operator IS NOT NULL AND threshold IS NOT NULL AND "
+            "offline_after_seconds IS NULL) OR "
+            "(rule_type = 'device_offline' AND metric IS NULL AND "
+            "operator IS NULL AND threshold IS NULL AND "
+            "offline_after_seconds IS NOT NULL))",
+            name="ck_alert_rules_shape",
+        ),
+        CheckConstraint(
+            "offline_after_seconds IS NULL OR "
+            "offline_after_seconds BETWEEN 5 AND 604800",
+            name="ck_alert_rules_offline_bounds",
+        ),
+        CheckConstraint(
+            "threshold IS NULL OR "
+            "((metric = 'temperature_c' AND threshold BETWEEN -100 AND 200) OR "
+            "(metric = 'humidity_pct' AND threshold BETWEEN 0 AND 100) OR "
+            "(metric = 'pressure_hpa' AND threshold BETWEEN 0 AND 2000) OR "
+            "(metric = 'battery_pct' AND threshold BETWEEN 0 AND 100) OR "
+            "(metric = 'rssi_dbm' AND threshold BETWEEN -200 AND 0))",
+            name="ck_alert_rules_threshold_bounds",
+        ),
+        Index(
+            "ix_alert_rules_owner_created_at", "owner_id", "created_at"
+        ),
+        Index("ix_alert_rules_device_id", "device_id"),
+        Index("ix_alert_rules_owner_enabled", "owner_id", "enabled"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    device_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("devices.device_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    metric: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    offline_after_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 

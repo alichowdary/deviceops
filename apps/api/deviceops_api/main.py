@@ -15,6 +15,7 @@ from .config import settings
 from .database import database_is_reachable, engine
 from .mqtt import mqtt_ingestor
 from .realtime import realtime_hub
+from .routes.alert_rules import router as alert_rules_router
 from .routes.auth import router as auth_router
 from .routes.commands import router as commands_router
 from .routes.devices import router as devices_router
@@ -49,13 +50,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["DELETE", "GET", "PATCH", "POST"],
     allow_headers=["Accept", "Authorization", "Content-Type"],
 )
 app.include_router(auth_router)
 app.include_router(devices_router)
 app.include_router(commands_router)
 app.include_router(events_router)
+app.include_router(alert_rules_router)
 
 
 @app.websocket("/ws")

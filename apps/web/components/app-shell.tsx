@@ -11,7 +11,7 @@ import { AuthScreen } from "@/components/auth-screen";
 const navItems = [
   { label: "Fleet", href: "/", icon: RadioTower, enabled: true },
   { label: "Events", href: "/events", icon: Activity, enabled: true },
-  { label: "Alerts", href: "#", icon: Bell, enabled: false },
+  { label: "Alerts", href: "/alerts", icon: Bell, enabled: true },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {

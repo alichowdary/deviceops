@@ -108,3 +108,65 @@ export async function apiPost<T>(
 
   return (await response.json()) as T;
 }
+
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PATCH",
+      headers: requestHeaders(options.token, true),
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    throw new ApiError(
+      `Cannot reach the DeviceOps API at ${API_BASE_URL}.`,
+      null,
+    );
+  }
+
+  if (!response.ok) {
+    const error = await responseError(response);
+    if (response.status === 401 && options.token) options.onUnauthorized?.();
+    throw error;
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function apiDelete(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<void> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "DELETE",
+      headers: requestHeaders(options.token),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    throw new ApiError(
+      `Cannot reach the DeviceOps API at ${API_BASE_URL}.`,
+      null,
+    );
+  }
+
+  if (!response.ok) {
+    const error = await responseError(response);
+    if (response.status === 401 && options.token) options.onUnauthorized?.();
+    throw error;
+  }
+}
