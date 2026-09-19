@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import type {
+  AlertSeverity,
+  AlertStatus,
   CommandStatus,
   CommandType,
   DeviceOpsEvent,
@@ -43,8 +45,18 @@ function isEventType(value: unknown): value is EventType {
     value === "device_offline" ||
     value === "command_issued" ||
     value === "command_succeeded" ||
-    value === "command_failed"
+    value === "command_failed" ||
+    value === "alert_opened" ||
+    value === "alert_resolved"
   );
+}
+
+function isAlertSeverity(value: unknown): value is AlertSeverity {
+  return value === "info" || value === "warning" || value === "critical";
+}
+
+function isAlertStatus(value: unknown): value is AlertStatus {
+  return value === "active" || value === "resolved";
 }
 
 function isEventSeverity(value: unknown): value is EventSeverity {
@@ -58,6 +70,10 @@ function isEventSeverity(value: unknown): value is EventSeverity {
 
 function isNullableNumber(value: unknown): value is number | null {
   return value === null || typeof value === "number";
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function parseEvent(rawMessage: string): DeviceOpsEvent | null {
@@ -80,6 +96,28 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
     isEventSeverity(event.data.severity) &&
     typeof event.data.occurred_at === "string" &&
     isRecord(event.data.details)
+  ) {
+    return event as unknown as DeviceOpsEvent;
+  }
+
+  if (
+    event.type === "alert_update" &&
+    typeof event.data.id === "number" &&
+    typeof event.data.device_id === "string" &&
+    isNullableNumber(event.data.rule_id) &&
+    isNullableString(event.data.rule_name) &&
+    (event.data.rule_type === "metric_threshold" ||
+      event.data.rule_type === "device_offline") &&
+    isAlertSeverity(event.data.severity) &&
+    isAlertStatus(event.data.status) &&
+    typeof event.data.condition === "string" &&
+    isNullableNumber(event.data.observed_value) &&
+    isNullableNumber(event.data.resolved_value) &&
+    typeof event.data.opened_at === "string" &&
+    isNullableString(event.data.resolved_at) &&
+    isNullableString(event.data.resolution_reason) &&
+    typeof event.data.created_at === "string" &&
+    typeof event.data.updated_at === "string"
   ) {
     return event as unknown as DeviceOpsEvent;
   }

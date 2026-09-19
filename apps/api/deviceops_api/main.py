@@ -11,11 +11,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
+from .alert_evaluator import offline_alert_evaluator
 from .config import settings
 from .database import database_is_reachable, engine
 from .mqtt import mqtt_ingestor
 from .realtime import realtime_hub
 from .routes.alert_rules import router as alert_rules_router
+from .routes.alerts import router as alerts_router
 from .routes.auth import router as auth_router
 from .routes.commands import router as commands_router
 from .routes.devices import router as devices_router
@@ -37,10 +39,12 @@ WEBSOCKET_AUTH_TIMEOUT_SECONDS = 5
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await realtime_hub.start()
     mqtt_ingestor.start()
+    await offline_alert_evaluator.start()
     try:
         yield
     finally:
         mqtt_ingestor.stop()
+        await offline_alert_evaluator.stop()
         await realtime_hub.stop()
         engine.dispose()
 
@@ -58,6 +62,7 @@ app.include_router(devices_router)
 app.include_router(commands_router)
 app.include_router(events_router)
 app.include_router(alert_rules_router)
+app.include_router(alerts_router)
 
 
 @app.websocket("/ws")

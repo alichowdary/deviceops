@@ -77,7 +77,9 @@ export type EventType =
   | "device_offline"
   | "command_issued"
   | "command_succeeded"
-  | "command_failed";
+  | "command_failed"
+  | "alert_opened"
+  | "alert_resolved";
 
 export type EventSeverity = "info" | "success" | "warning" | "error";
 
@@ -111,6 +113,30 @@ export interface AlertRule {
   operator: AlertOperator | null;
   threshold: number | null;
   offline_after_seconds: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AlertStatus = "active" | "resolved";
+
+export interface Alert {
+  id: number;
+  device_id: string;
+  rule_id: number | null;
+  rule_name: string | null;
+  rule_type: AlertRuleType;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  condition: string;
+  metric: AlertMetric | null;
+  operator: AlertOperator | null;
+  threshold: number | null;
+  offline_after_seconds: number | null;
+  observed_value: number | null;
+  resolved_value: number | null;
+  opened_at: string;
+  resolved_at: string | null;
+  resolution_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -176,9 +202,16 @@ export interface EventCreatedEvent {
   data: PersistedEvent;
 }
 
+export interface AlertUpdateEvent {
+  type: "alert_update";
+  received_at: string;
+  data: Alert;
+}
+
 export type DeviceOpsEvent =
   | TelemetryEvent
   | DeviceStatusEvent
   | CommandUpdateEvent
-  | EventCreatedEvent;
+  | EventCreatedEvent
+  | AlertUpdateEvent;
 export type LiveConnectionState = "connecting" | "live" | "reconnecting";

@@ -72,6 +72,7 @@ class HubTests(unittest.IsolatedAsyncioTestCase):
             "device_status",
             "command_update",
             "event_created",
+            "alert_update",
         ):
             for owner_id in (1, 2):
                 with self.subTest(event_type=event_type, owner_id=owner_id):

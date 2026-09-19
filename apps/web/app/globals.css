@@ -1356,15 +1356,35 @@ a:focus-visible,
   font-size: 9px;
 }
 
-.alert-phase-note {
+.alert-lifecycle-panel {
   margin-bottom: 14px;
-  padding: 7px 10px;
-  border: 1px solid #31506a;
-  border-left: 3px solid var(--accent);
-  border-radius: 4px;
-  background: #111d27;
-  color: #a9c6dc;
+}
+
+.alert-instances-table {
+  min-width: 900px;
+}
+
+.alert-instances-table td {
+  height: 55px;
+}
+
+.alert-healthy-state,
+.alert-empty-row {
+  min-height: 45px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  color: var(--muted);
   font-size: 11px;
+}
+
+.alert-health-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--online);
+  box-shadow: 0 0 0 3px var(--online-muted);
 }
 
 .alert-rules-table {

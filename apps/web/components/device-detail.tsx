@@ -158,7 +158,7 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
   const handleLiveEvent = useCallback(
     (event: DeviceOpsEvent) => {
-      if (event.type === "event_created") return;
+      if (event.type === "event_created" || event.type === "alert_update") return;
       if (event.device_id !== deviceId) return;
 
       setState((current) => {

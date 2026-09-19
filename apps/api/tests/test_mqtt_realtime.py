@@ -172,6 +172,25 @@ class MqttRealtimeTests(unittest.TestCase):
                     self.ingestor._process_message(*self.signed_message(kind))
                     hub.publish_from_thread.assert_not_called()
 
+    def test_alert_evaluation_failure_does_not_undo_telemetry_ingestion(self):
+        with (
+            patch("deviceops_api.mqtt.SessionLocal") as factory,
+            patch("deviceops_api.mqtt.realtime_hub") as hub,
+            patch(
+                "deviceops_api.mqtt.evaluate_committed_metric_sample",
+                side_effect=RuntimeError("test evaluation failure"),
+            ),
+            self.assertLogs("deviceops_api.mqtt", level="ERROR"),
+        ):
+            factory.begin.return_value = self.transaction()
+            self.ingestor._process_message(*self.signed_message("telemetry"))
+
+        self.assertTrue(self.committed)
+        hub.publish_from_thread.assert_called_once()
+        self.assertEqual(
+            hub.publish_from_thread.call_args.args[1]["type"], "telemetry"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

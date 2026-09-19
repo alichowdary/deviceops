@@ -12,6 +12,10 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from .alerts import (
+    evaluate_committed_metric_sample,
+    evaluate_offline_alerts_once,
+)
 from .config import settings
 from .database import SessionLocal
 from .events import create_device_event, event_created_message
@@ -393,6 +397,23 @@ class MqttIngestor:
                 },
             }
         )
+        try:
+            evaluate_committed_metric_sample(
+                device_id=topic_device_id,
+                metrics={
+                    "temperature_c": payload.metrics.temperature_c,
+                    "battery_pct": payload.metrics.battery_pct,
+                    "humidity_pct": payload.metrics.humidity_pct,
+                    "pressure_hpa": payload.metrics.pressure_hpa,
+                    "rssi_dbm": payload.metrics.rssi_dbm,
+                },
+                observed_at=received_at,
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected metric alert evaluation failure for device=%s",
+                topic_device_id,
+            )
 
     def _process_status(
         self,
@@ -426,6 +447,7 @@ class MqttIngestor:
                     device.mqtt_session_id = envelope.session_id
                     if device.first_seen_at is None:
                         device.first_seen_at = received_at
+                    device.offline_since = None
                 else:
                     if device.mqtt_session_id != envelope.session_id:
                         logger.warning(
@@ -433,6 +455,8 @@ class MqttIngestor:
                             topic_device_id,
                         )
                         return
+                    if previous_status != "offline" or device.offline_since is None:
+                        device.offline_since = received_at
 
                 device.status = status
                 device.last_seen_at = received_at
@@ -476,6 +500,16 @@ class MqttIngestor:
             realtime_hub.publish_from_thread(
                 owner_id,
                 event_created_message(event, received_at=received_at),
+            )
+        try:
+            evaluate_offline_alerts_once(
+                observed_at=received_at,
+                device_id=topic_device_id,
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected offline alert evaluation failure for device=%s",
+                topic_device_id,
             )
 
     def _process_command_ack(

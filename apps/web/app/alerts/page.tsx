@@ -6,17 +6,28 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AlertRuleDialog } from "@/components/alert-rule-dialog";
 import { useAuth } from "@/components/auth-provider";
+import { LiveConnectionIndicator } from "@/components/live-connection-indicator";
 import { RefreshButton } from "@/components/refresh-button";
 import { LoadingState, StatePanel } from "@/components/state-panel";
+import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
 import { apiDelete, apiGet, apiPatch } from "@/lib/api";
+import { formatExactTime, formatRelativeTime } from "@/lib/format";
 import type {
+  Alert,
   AlertMetric,
   AlertOperator,
   AlertRule,
   Device,
+  DeviceOpsEvent,
 } from "@/lib/types";
 
+const ACTIVE_ALERT_LIMIT = 200;
+const RESOLVED_ALERT_LIMIT = 100;
+const ALERT_CACHE_LIMIT = ACTIVE_ALERT_LIMIT + RESOLVED_ALERT_LIMIT;
+const RESOLVED_DISPLAY_LIMIT = 20;
+
 interface AlertsState {
+  alerts: Alert[] | null;
   rules: AlertRule[] | null;
   devices: Device[] | null;
   loading: boolean;
@@ -24,6 +35,7 @@ interface AlertsState {
 }
 
 const initialState: AlertsState = {
+  alerts: null,
   rules: null,
   devices: null,
   loading: true,
@@ -45,6 +57,13 @@ const operatorLabels: Record<AlertOperator, string> = {
   lte: "≤",
 };
 
+const resolutionLabels: Record<string, string> = {
+  condition_cleared: "Condition cleared",
+  device_reconnected: "Device reconnected",
+  rule_disabled: "Rule disabled",
+  rule_deleted: "Rule deleted",
+};
+
 function formatDuration(seconds: number): string {
   if (seconds % 86_400 === 0) {
     const days = seconds / 86_400;
@@ -58,7 +77,7 @@ function formatDuration(seconds: number): string {
     const minutes = seconds / 60;
     return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
   }
-  return `${seconds} seconds`;
+  return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
 }
 
 function ruleCondition(rule: AlertRule): string {
@@ -80,6 +99,104 @@ function sortRules(rules: AlertRule[]): AlertRule[] {
   });
 }
 
+function mergeAlerts(incoming: Alert[], current: Alert[] | null): Alert[] {
+  const alertsById = new Map<number, Alert>();
+  for (const alert of [...(current ?? []), ...incoming]) {
+    alertsById.set(alert.id, alert);
+  }
+  return [...alertsById.values()]
+    .sort((left, right) => {
+      const timeDifference =
+        new Date(right.opened_at).getTime() - new Date(left.opened_at).getTime();
+      return timeDifference || right.id - left.id;
+    })
+    .slice(0, ALERT_CACHE_LIMIT);
+}
+
+function observedValue(alert: Alert): string | null {
+  if (alert.observed_value === null) return null;
+  const unit = alert.metric === null ? "" : ` ${metricLabels[alert.metric].unit}`;
+  return `${alert.observed_value}${unit}`;
+}
+
+function AlertTable({ alerts, resolved }: { alerts: Alert[]; resolved: boolean }) {
+  return (
+    <div className="data-table-wrap">
+      <table className="data-table alert-instances-table">
+        <thead>
+          <tr>
+            <th scope="col">Severity</th>
+            <th scope="col">Alert</th>
+            <th scope="col">Device</th>
+            <th scope="col">Condition</th>
+            {resolved ? <th scope="col">Resolution</th> : null}
+            <th scope="col">{resolved ? "Lifecycle" : "Opened"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {alerts.map((alert) => {
+            const observed = observedValue(alert);
+            return (
+              <tr key={alert.id}>
+                <td>
+                  <span className={`rule-severity rule-severity-${alert.severity}`}>
+                    {alert.severity}
+                  </span>
+                </td>
+                <td>
+                  <span className="table-primary">
+                    {alert.rule_name ?? "Deleted rule"}
+                  </span>
+                  <span className="table-secondary">Alert #{alert.id}</span>
+                </td>
+                <td>
+                  <Link
+                    className="alert-device-link mono"
+                    href={`/devices/${encodeURIComponent(alert.device_id)}`}
+                  >
+                    {alert.device_id}
+                  </Link>
+                </td>
+                <td>
+                  <span className="alert-condition">{alert.condition}</span>
+                  {observed ? (
+                    <span className="table-secondary">Observed: {observed}</span>
+                  ) : null}
+                </td>
+                {resolved ? (
+                  <td>
+                    {alert.resolution_reason
+                      ? resolutionLabels[alert.resolution_reason] ??
+                        alert.resolution_reason.replaceAll("_", " ")
+                      : "Resolved"}
+                  </td>
+                ) : null}
+                <td>
+                  <time dateTime={alert.opened_at} title={formatExactTime(alert.opened_at)}>
+                    {formatRelativeTime(alert.opened_at)}
+                  </time>
+                  {resolved && alert.resolved_at ? (
+                    <span
+                      className="table-secondary"
+                      title={formatExactTime(alert.resolved_at)}
+                    >
+                      Resolved {formatRelativeTime(alert.resolved_at)}
+                    </span>
+                  ) : (
+                    <span className="table-secondary mono">
+                      {formatExactTime(alert.opened_at)}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AlertsPage() {
   const { invalidateSession, token } = useAuth();
   const [requestNumber, setRequestNumber] = useState(0);
@@ -92,6 +209,16 @@ export default function AlertsPage() {
     const controller = new AbortController();
 
     Promise.all([
+      apiGet<Alert[]>(`/api/alerts?status=active&limit=${ACTIVE_ALERT_LIMIT}`, {
+        signal: controller.signal,
+        token,
+        onUnauthorized: invalidateSession,
+      }),
+      apiGet<Alert[]>(`/api/alerts?status=resolved&limit=${RESOLVED_ALERT_LIMIT}`, {
+        signal: controller.signal,
+        token,
+        onUnauthorized: invalidateSession,
+      }),
       apiGet<AlertRule[]>("/api/alert-rules", {
         signal: controller.signal,
         token,
@@ -103,13 +230,14 @@ export default function AlertsPage() {
         onUnauthorized: invalidateSession,
       }),
     ])
-      .then(([rules, devices]) => {
-        setState({
+      .then(([activeAlerts, resolvedAlerts, rules, devices]) => {
+        setState((current) => ({
+          alerts: mergeAlerts([...activeAlerts, ...resolvedAlerts], current.alerts),
           rules: sortRules(rules),
           devices,
           loading: false,
           error: null,
-        });
+        }));
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -117,7 +245,7 @@ export default function AlertsPage() {
           ...current,
           loading: false,
           error:
-            error instanceof Error ? error.message : "The alert rules request failed.",
+            error instanceof Error ? error.message : "The alerts request failed.",
         }));
       });
 
@@ -128,6 +256,22 @@ export default function AlertsPage() {
     setState((current) => ({ ...current, loading: true, error: null }));
     setRequestNumber((value) => value + 1);
   }, []);
+
+  const handleLiveEvent = useCallback((event: DeviceOpsEvent) => {
+    if (event.type !== "alert_update") return;
+    setState((current) => ({
+      ...current,
+      alerts: mergeAlerts([event.data], current.alerts),
+    }));
+  }, []);
+
+  const liveConnection = useDeviceOpsWebSocket({
+    enabled: state.alerts !== null && token !== null,
+    token,
+    onEvent: handleLiveEvent,
+    onReconnect: refresh,
+    onAuthenticationFailure: invalidateSession,
+  });
 
   const handleSaved = useCallback((savedRule: AlertRule) => {
     setState((current) => ({
@@ -191,7 +335,7 @@ export default function AlertsPage() {
   }
 
   if (state.loading && state.rules === null) {
-    return <LoadingState label="Loading alert rules" />;
+    return <LoadingState label="Loading alerts" />;
   }
 
   if (state.error && state.rules === null) {
@@ -204,22 +348,28 @@ export default function AlertsPage() {
         }
         description={`${state.error} Confirm FastAPI is running and retry the request.`}
         eyebrow="Backend unavailable"
-        title="Alert rules could not be loaded"
+        title="Alerts could not be loaded"
       />
     );
   }
 
+  const alerts = state.alerts ?? [];
   const rules = state.rules ?? [];
   const devices = state.devices ?? [];
+  const activeAlerts = alerts.filter((alert) => alert.status === "active");
+  const resolvedAlerts = alerts
+    .filter((alert) => alert.status === "resolved")
+    .slice(0, RESOLVED_DISPLAY_LIMIT);
 
   return (
     <>
       <header className="page-header">
         <div>
           <h1 className="page-title">Alerts</h1>
-          <p className="page-description">Configure device thresholds and offline rules</p>
+          <p className="page-description">Monitor active conditions and manage alert rules</p>
         </div>
         <div className="page-actions">
+          <LiveConnectionIndicator state={liveConnection} />
           <button
             className="button button-primary"
             disabled={devices.length === 0}
@@ -233,15 +383,38 @@ export default function AlertsPage() {
         </div>
       </header>
 
-      <div className="alert-phase-note">
-        Rules are configured here. Evaluation and alert instances are added in the next phase.
-      </div>
-
       {state.error ? (
         <div className="health-line health-degraded">
-          The last action failed: {state.error}
+          The last action or refresh failed: {state.error}
         </div>
       ) : null}
+
+      <section className="panel alert-lifecycle-panel">
+        <div className="section-header">
+          <h2 className="section-title">Active alerts</h2>
+          <span className="section-meta">{activeAlerts.length} active</span>
+        </div>
+        {activeAlerts.length === 0 ? (
+          <div className="alert-healthy-state">
+            <span aria-hidden="true" className="alert-health-indicator" />
+            No active alert conditions
+          </div>
+        ) : (
+          <AlertTable alerts={activeAlerts} resolved={false} />
+        )}
+      </section>
+
+      <section className="panel alert-lifecycle-panel">
+        <div className="section-header">
+          <h2 className="section-title">Recent resolved</h2>
+          <span className="section-meta">Newest first</span>
+        </div>
+        {resolvedAlerts.length === 0 ? (
+          <div className="alert-empty-row">No resolved alert history yet.</div>
+        ) : (
+          <AlertTable alerts={resolvedAlerts} resolved />
+        )}
+      </section>
 
       {devices.length === 0 ? (
         <StatePanel
@@ -370,7 +543,7 @@ export default function AlertsPage() {
       )}
 
       <p className="footer-note">
-        Rule definitions are persisted and owner-scoped. They are not evaluated in this phase.
+        Alert state and lifecycle history are persisted. External notifications are not configured.
       </p>
 
       {dialogRule !== null && token ? (

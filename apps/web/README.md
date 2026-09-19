@@ -1,9 +1,10 @@
 # DeviceOps web console
 
 The frontend is a Next.js operations console. It loads device state, telemetry,
-command history, and persistent fleet events through FastAPI's REST API, then
-receives new committed telemetry, status, command, and event updates through one
-FastAPI WebSocket. The browser does not connect to MQTT.
+command history, persistent fleet events, rules, and alert history through
+FastAPI's REST API, then receives new committed telemetry, status, command,
+event, and alert updates through one FastAPI WebSocket. The browser does not
+connect to MQTT.
 
 ## Requirements
 
@@ -57,16 +58,18 @@ optional measurement, so battery-powered simulators and battery-free sensor
 devices share the same detail page without empty charts.
 
 The Events navigation item opens `/events`, a newest-first operational feed for
-registration, connectivity transitions, and command activity. Device, event
+registration, connectivity transitions, command activity, and alert lifecycle
+changes. Device, event
 type, and severity filters apply to both the REST snapshot and live updates.
-Persistent IDs deduplicate snapshot and WebSocket delivery. Alerts and routine
-telemetry samples are not part of this page.
+Persistent IDs deduplicate snapshot and WebSocket delivery. Routine telemetry
+samples are not part of this page.
 
-The Alerts navigation item opens `/alerts`, where authenticated users create and
-manage metric threshold and device-offline rules for their own devices. The page
-shows human-readable conditions and supports editing, enabling/disabling, and
-deleting rules. Rule evaluation, alert instances, and notifications are not part
-of this phase.
+The Alerts navigation item opens `/alerts`, where authenticated users monitor
+active alerts, inspect recently resolved history, and manage metric threshold and
+device-offline rules for their own devices. Conditions and observed values are
+human-readable. Persistent IDs deduplicate REST snapshots and live `alert_update`
+messages. The existing create, edit, enable/disable, and delete controls remain
+on the same dense operations page. External notifications are not implemented.
 
 Authenticated users can select **Add device** from Fleet to generate a device ID
 and one-time device secret. Copy both values before closing the credential

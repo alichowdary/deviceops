@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..alerts import publish_alert_changes, resolve_active_rule_alert
 from ..database import get_database_session
 from ..models import AlertRule, User
 from ..ownership import (
@@ -95,7 +97,10 @@ def update_alert_rule(
     session: DatabaseSession,
     current_user: CurrentUser,
 ) -> AlertRule:
-    rule = get_owned_alert_rule_or_404(session, rule_id, current_user.id)
+    rule = get_owned_alert_rule_or_404(
+        session, rule_id, current_user.id, for_update=True
+    )
+    was_enabled = rule.enabled
     changes = request.model_dump(exclude_unset=True)
     try:
         candidate = AlertRuleCreate.model_validate(
@@ -122,8 +127,19 @@ def update_alert_rule(
     for field_name in changes:
         setattr(rule, field_name, validated[field_name])
 
+    lifecycle_changes = []
+    if was_enabled and not rule.enabled:
+        change = resolve_active_rule_alert(
+            session,
+            rule,
+            resolved_at=datetime.now(timezone.utc),
+            reason="rule_disabled",
+        )
+        if change is not None:
+            lifecycle_changes.append(change)
     session.commit()
     session.refresh(rule)
+    publish_alert_changes(lifecycle_changes)
     return rule
 
 
@@ -133,7 +149,20 @@ def delete_alert_rule(
     session: DatabaseSession,
     current_user: CurrentUser,
 ) -> Response:
-    rule = get_owned_alert_rule_or_404(session, rule_id, current_user.id)
+    rule = get_owned_alert_rule_or_404(
+        session, rule_id, current_user.id, for_update=True
+    )
+    lifecycle_changes = []
+    change = resolve_active_rule_alert(
+        session,
+        rule,
+        resolved_at=datetime.now(timezone.utc),
+        reason="rule_deleted",
+        detach_rule=True,
+    )
+    if change is not None:
+        lifecycle_changes.append(change)
     session.delete(rule)
     session.commit()
+    publish_alert_changes(lifecycle_changes)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

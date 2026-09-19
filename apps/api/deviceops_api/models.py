@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
     true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -55,6 +56,9 @@ class Device(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    offline_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -69,7 +73,7 @@ class DeviceEvent(Base):
         CheckConstraint(
             "event_type IN ('device_registered', 'device_online', "
             "'device_offline', 'command_issued', 'command_succeeded', "
-            "'command_failed')",
+            "'command_failed', 'alert_opened', 'alert_resolved')",
             name="ck_device_events_type",
         ),
         CheckConstraint(
@@ -183,6 +187,111 @@ class AlertRule(Base):
     threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     offline_after_seconds: Mapped[int | None] = mapped_column(
         Integer, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "rule_type IN ('metric_threshold', 'device_offline')",
+            name="ck_alerts_rule_type",
+        ),
+        CheckConstraint(
+            "severity IN ('info', 'warning', 'critical')",
+            name="ck_alerts_severity",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'resolved')",
+            name="ck_alerts_status",
+        ),
+        CheckConstraint(
+            "metric IS NULL OR metric IN ('temperature_c', 'humidity_pct', "
+            "'pressure_hpa', 'battery_pct', 'rssi_dbm')",
+            name="ck_alerts_metric",
+        ),
+        CheckConstraint(
+            "operator IS NULL OR operator IN ('gt', 'gte', 'lt', 'lte')",
+            name="ck_alerts_operator",
+        ),
+        CheckConstraint(
+            "((rule_type = 'metric_threshold' AND metric IS NOT NULL AND "
+            "operator IS NOT NULL AND threshold IS NOT NULL AND "
+            "offline_after_seconds IS NULL) OR "
+            "(rule_type = 'device_offline' AND metric IS NULL AND "
+            "operator IS NULL AND threshold IS NULL AND "
+            "offline_after_seconds IS NOT NULL))",
+            name="ck_alerts_rule_shape",
+        ),
+        CheckConstraint(
+            "((status = 'active' AND resolved_at IS NULL AND "
+            "resolution_reason IS NULL) OR "
+            "(status = 'resolved' AND resolved_at IS NOT NULL AND "
+            "resolution_reason IS NOT NULL))",
+            name="ck_alerts_lifecycle",
+        ),
+        Index(
+            "ix_alerts_owner_status_opened_at",
+            "owner_id",
+            "status",
+            "opened_at",
+        ),
+        Index("ix_alerts_device_opened_at", "device_id", "opened_at"),
+        Index("ix_alerts_rule_opened_at", "rule_id", "opened_at"),
+        Index(
+            "uq_alerts_active_rule",
+            "rule_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'active' AND rule_id IS NOT NULL"
+            ),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    device_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("devices.device_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    rule_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("alert_rules.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rule_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    condition: Mapped[str] = mapped_column(String(255), nullable=False)
+    metric: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    offline_after_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    observed_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    resolved_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    resolution_reason: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

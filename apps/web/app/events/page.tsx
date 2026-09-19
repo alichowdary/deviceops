@@ -27,6 +27,8 @@ const eventTypeLabels: Record<EventType, string> = {
   command_issued: "Command issued",
   command_succeeded: "Command succeeded",
   command_failed: "Command failed",
+  alert_opened: "Alert opened",
+  alert_resolved: "Alert resolved",
 };
 
 const eventTypes = Object.keys(eventTypeLabels) as EventType[];
@@ -120,6 +122,34 @@ function eventDescription(event: PersistedEvent): string {
   }
   if (event.event_type === "device_offline") {
     return "The authenticated device session went offline.";
+  }
+  if (event.event_type === "alert_opened") {
+    const condition =
+      typeof event.details.condition === "string"
+        ? event.details.condition
+        : "Configured alert condition";
+    const observed = event.details.observed_value;
+    return typeof observed === "number"
+      ? `${condition} triggered at an observed value of ${observed}.`
+      : `${condition} triggered.`;
+  }
+  if (event.event_type === "alert_resolved") {
+    const condition =
+      typeof event.details.condition === "string"
+        ? event.details.condition
+        : "Configured alert condition";
+    const reason = event.details.resolution_reason;
+    const reasonLabels: Record<string, string> = {
+      condition_cleared: "the condition cleared",
+      device_reconnected: "the device reconnected",
+      rule_disabled: "the rule was disabled",
+      rule_deleted: "the rule was deleted",
+    };
+    const explanation =
+      typeof reason === "string" ? reasonLabels[reason] ?? reason.replaceAll("_", " ") : null;
+    return explanation
+      ? `${condition} resolved because ${explanation}.`
+      : `${condition} resolved.`;
   }
 
   const detail = commandDetail(event) ?? "Device command";
@@ -271,7 +301,7 @@ export default function EventsPage() {
         <div>
           <h1 className="page-title">Events</h1>
           <p className="page-description">
-            Durable registration, connectivity, and command activity
+            Durable registration, connectivity, command, and alert activity
           </p>
         </div>
         <div className="page-actions">
@@ -354,7 +384,7 @@ export default function EventsPage() {
 
       {events.length === 0 ? (
         <StatePanel
-          description="Registration, connectivity transitions, and command outcomes will appear here. Telemetry samples are intentionally excluded."
+          description="Registration, connectivity transitions, command outcomes, and alert lifecycle changes will appear here. Telemetry samples are intentionally excluded."
           eyebrow="0 events"
           title="No matching fleet activity"
         />

@@ -17,6 +17,8 @@ EventType: TypeAlias = Literal[
     "command_issued",
     "command_succeeded",
     "command_failed",
+    "alert_opened",
+    "alert_resolved",
 ]
 EventSeverity: TypeAlias = Literal["info", "success", "warning", "error"]
 
@@ -27,6 +29,8 @@ EVENT_SEVERITY: dict[EventType, EventSeverity] = {
     "command_issued": "info",
     "command_succeeded": "success",
     "command_failed": "error",
+    "alert_opened": "warning",
+    "alert_resolved": "success",
 }
 
 
@@ -42,13 +46,14 @@ def create_device_event(
     event_type: EventType,
     occurred_at: datetime,
     details: dict[str, Any] | None = None,
+    severity: EventSeverity | None = None,
 ) -> DeviceEvent:
     """Add and flush one event inside the caller's domain transaction."""
     event = DeviceEvent(
         owner_id=owner_id,
         device_id=device_id,
         event_type=event_type,
-        severity=EVENT_SEVERITY[event_type],
+        severity=severity or EVENT_SEVERITY[event_type],
         occurred_at=occurred_at,
         details=details or {},
     )

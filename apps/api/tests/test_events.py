@@ -198,10 +198,22 @@ class EventPersistenceTests(unittest.TestCase):
 
         offline = self._signed_message("status", "offline")
         self._process_message(*offline)
+        self.session.refresh(self.device)
+        first_offline_since = self.device.offline_since
+        self.assertIsNotNone(first_offline_since)
+        self.session.commit()
         self._process_message(*offline)
+        self.session.refresh(self.device)
+        self.assertEqual(self.device.offline_since, first_offline_since)
+        self.session.commit()
         self.assertEqual(
             self._event_count("device_offline", self.device.device_id), 1
         )
+
+        self.session.commit()
+        self._process_message(*online)
+        self.session.refresh(self.device)
+        self.assertIsNone(self.device.offline_since)
 
     def test_command_creation_and_first_ack_are_each_recorded_once(self) -> None:
         with (

@@ -48,7 +48,9 @@ Run one Uvicorn worker in this milestone. Because the MQTT subscriber currently
 lives inside the API process, additional workers would also start subscribers.
 The ingestion responsibility can be separated later if independent scaling is
 needed. The WebSocket hub is also in process, so this single-worker constraint
-keeps ingestion and connected browsers on the same event stream.
+keeps ingestion and connected browsers on the same event stream. The one-second
+offline-alert evaluator also runs in this process; multi-worker coordination is
+intentionally outside this local milestone.
 
 ## Run a device
 
@@ -75,6 +77,7 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-de
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/devices/<owned-device-id>/commands?limit=20"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/events?limit=100"
 Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alert-rules"
+Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/api/alerts?limit=100"
 ```
 
 Telemetry is returned oldest-to-newest within the requested recent window. The
@@ -120,8 +123,33 @@ device operating ranges to the user.
 
 PATCH supports name, severity, enabled state, and the fields that belong to the
 existing rule type. Device, rule type, and metric are immutable after creation.
-Phase 2 persists and manages these definitions only; it does not evaluate rules,
-open alert instances, or send notifications.
+Disabling a rule immediately resolves its active alert. Re-enabling makes it
+eligible to open a new alert on the next evaluation. Deleting a rule resolves its
+active alert before deletion and retains alert history with a null rule ID plus
+the saved rule name, type, severity, and condition.
+
+## Alert evaluation and history
+
+`GET /api/alerts` returns the authenticated owner's newest alert instances. It
+accepts `status`, `device_id`, `severity`, `rule_id`, and a `limit` from 1 through
+200. `GET /api/alerts/{alert_id}` returns one owned instance. Cross-owner device,
+rule, and alert lookups use privacy-preserving HTTP 404 responses; responses do
+not include `owner_id`.
+
+Accepted authenticated telemetry evaluates enabled metric rules after the
+telemetry transaction commits. A true condition opens one alert, repeated true
+samples retain that alert, and a later false value resolves it. A missing or null
+metric leaves the current lifecycle unchanged. Evaluation runs in its own short
+transaction, so an alert failure cannot roll back accepted telemetry.
+
+Offline rules use persisted `offline_since` state and open only after a previously
+connected device remains explicitly offline for the configured duration. Unknown
+and never-connected devices do not alert. A one-second in-process task evaluates
+threshold crossings without needing another MQTT message; reconnect status also
+resolves an active offline alert immediately. The database partial unique index
+on active `rule_id` prevents two active instances for one rule. Alert state and
+lifecycle events commit in the same transaction. External email, SMS, push, and
+webhook notifications are not implemented.
 
 The persistent event types and severities are:
 
@@ -133,11 +161,14 @@ The persistent event types and severities are:
 | `command_issued` | `info` | A pending command commits |
 | `command_succeeded` | `success` | The first valid ACK succeeds the command |
 | `command_failed` | `error` | The first valid ACK fails the command |
+| `alert_opened` | alert severity mapped to `info`/`warning`/`error` | A rule first becomes violated |
+| `alert_resolved` | `success` | An alert clears or its rule is disabled/deleted |
 
 Repeated effective status messages and duplicate command acknowledgements do not
 create duplicate events. Telemetry samples are deliberately excluded. Event
-details contain only safe operational command/status context; credentials,
-authenticated MQTT envelopes, and ownership routing metadata are not stored.
+details contain only safe operational command, status, and alert context;
+credentials, authenticated MQTT envelopes, and ownership routing metadata are
+not stored.
 
 ## User authentication
 
@@ -238,6 +269,39 @@ The endpoint emits MQTT deltas accepted by the existing validation and committed
 to PostgreSQL. It also emits `event_created` after the corresponding persistent
 fleet event commits. The socket does not replay history; reconnecting clients
 fetch fresh REST snapshots before applying new deltas.
+
+Alert lifecycle changes use the same owner-scoped socket:
+
+```json
+{
+  "type": "alert_update",
+  "received_at": "2026-09-19T12:00:00Z",
+  "data": {
+    "id": 17,
+    "device_id": "dev-example",
+    "rule_id": 4,
+    "rule_name": "Warm room",
+    "rule_type": "metric_threshold",
+    "severity": "warning",
+    "status": "active",
+    "condition": "Temperature > 30 °C",
+    "metric": "temperature_c",
+    "operator": "gt",
+    "threshold": 30,
+    "offline_after_seconds": null,
+    "observed_value": 31.4,
+    "resolved_value": null,
+    "opened_at": "2026-09-19T12:00:00Z",
+    "resolved_at": null,
+    "resolution_reason": null,
+    "created_at": "2026-09-19T12:00:00Z",
+    "updated_at": "2026-09-19T12:00:00Z"
+  }
+}
+```
+
+The matching `alert_opened` or `alert_resolved` record also arrives as the
+existing `event_created` message. Neither message contains `owner_id`.
 
 Persistent event notifications use this shape:
 

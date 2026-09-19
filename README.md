@@ -7,9 +7,9 @@ Next.js fleet console with live updates and device-specific remote commands, and
 a verified ESP32-S3 reference firmware project. Milestone 7 adds user
 authentication, per-user device ownership, one-time device registration
 credentials, authenticated device messages, and owner-isolated live updates.
-Milestone 8 adds a persistent fleet activity feed and owner-scoped alert rule
-configuration. Alert evaluation and active alert instances are not implemented
-in Phase 2.
+Milestone 8 adds a persistent fleet activity feed, owner-scoped alert rules, and
+durable active/resolved alert lifecycles evaluated from committed telemetry and
+device status.
 
 The implemented flow is:
 
@@ -41,9 +41,9 @@ updates their persisted status from device acknowledgements. The explicit
 Refresh control remains available. The `/events` page provides a persistent,
 owner-scoped activity feed for registration, connectivity transitions, and
 command lifecycle events without duplicating routine telemetry.
-The `/alerts` page manages per-device metric threshold and offline-duration rule
-definitions. Rules can be enabled, disabled, edited, and deleted; this phase
-stores configuration only and does not yet evaluate devices against it.
+The `/alerts` page shows active and recently resolved alerts alongside per-device
+metric threshold and offline-duration rule definitions. Alert state updates live,
+persists across refreshes, and is also recorded in the Events feed.
 
 ```powershell
 cd apps\web
@@ -187,8 +187,8 @@ Milestone 6 supports battery-powered simulators and battery-free environmental
 sensors through the same ingestion and console paths, and includes the verified
 ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
 device registration credentials, authenticated MQTT envelopes, and isolated
-realtime delivery. Milestone 8 Phase 1 adds persistent fleet Events through REST,
-owner-isolated WebSockets, and the web console. Phase 2 adds persistent alert
-rule management without evaluation or notifications. Automatic capability
-discovery, broker-level MQTT authentication and TLS, alert evaluation, OTA
-updates, and cloud infrastructure remain future work.
+realtime delivery. Milestone 8 adds persistent fleet Events, alert-rule
+management, and automatic active/resolved alert lifecycles through REST and
+owner-isolated WebSockets. External alert notification delivery is not
+implemented. Automatic capability discovery, broker-level MQTT authentication
+and TLS, OTA updates, and cloud infrastructure remain future work.

@@ -35,6 +35,7 @@ AlertMetric = Literal[
 ]
 AlertOperator = Literal["gt", "gte", "lt", "lte"]
 AlertSeverity = Literal["info", "warning", "critical"]
+AlertStatus = Literal["active", "resolved"]
 
 ALERT_METRIC_BOUNDS: dict[AlertMetric, tuple[float, float]] = {
     "temperature_c": (-100, 200),
@@ -313,6 +314,30 @@ class AlertRuleRead(BaseModel):
     operator: AlertOperator | None
     threshold: float | None
     offline_after_seconds: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AlertRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    device_id: str
+    rule_id: int | None
+    rule_name: str | None
+    rule_type: AlertRuleType
+    severity: AlertSeverity
+    status: AlertStatus
+    condition: str
+    metric: AlertMetric | None
+    operator: AlertOperator | None
+    threshold: float | None
+    offline_after_seconds: int | None
+    observed_value: float | None
+    resolved_value: float | None
+    opened_at: datetime
+    resolved_at: datetime | None
+    resolution_reason: str | None
     created_at: datetime
     updated_at: datetime
 
