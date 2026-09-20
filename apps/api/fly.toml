@@ -1,0 +1,35 @@
+app = 'deviceops-api-prod'
+primary_region = 'iad'
+
+[build]
+
+[deploy]
+  release_command = 'alembic upgrade head'
+
+[env]
+  DEVICEOPS_MQTT_HOST = '4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud'
+  DEVICEOPS_MQTT_PORT = '8883'
+  DEVICEOPS_MQTT_TLS = 'true'
+  DEVICEOPS_MQTT_CLIENT_ID = 'deviceops-api-prod'
+  DEVICEOPS_MQTT_USERNAME = 'deviceops-api-prod'
+  DEVICEOPS_CORS_ORIGINS = 'https://deviceops.net'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 0
+  processes = ['app']
+
+[[http_service.checks]]
+  interval = '30s'
+  timeout = '5s'
+  grace_period = '10s'
+  method = 'GET'
+  path = '/health'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
