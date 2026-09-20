@@ -455,6 +455,9 @@ CORS in addition to the JWT authentication above.
 | `DEVICEOPS_MQTT_HOST` | `localhost` |
 | `DEVICEOPS_MQTT_PORT` | `1883` |
 | `DEVICEOPS_MQTT_CLIENT_ID` | `deviceops-api` |
+| `DEVICEOPS_MQTT_USERNAME` | unset |
+| `DEVICEOPS_MQTT_PASSWORD` | unset |
+| `DEVICEOPS_MQTT_TLS` | `false` |
 | `DEVICEOPS_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` |
 | `DEVICEOPS_AUTH_SECRET` | `deviceops-local-development-secret-must-be-overridden` |
 | `DEVICEOPS_AUTH_TOKEN_LIFETIME_SECONDS` | `86400` |
@@ -465,6 +468,27 @@ local Next.js origins. Supply a comma-separated list through
 The default authentication secret is for local development only and must be
 replaced with a strong secret supplied through `DEVICEOPS_AUTH_SECRET` before
 deployment. Access tokens use HS256 and expire after 24 hours by default.
+
+The default MQTT settings keep local anonymous Mosquitto on
+`localhost:1883` unchanged. For the production HiveMQ Cloud broker, configure
+the host, port `8883`, broker username and password, and enable verified TLS:
+
+```powershell
+$env:DEVICEOPS_MQTT_HOST = "4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud"
+$env:DEVICEOPS_MQTT_PORT = "8883"
+$env:DEVICEOPS_MQTT_TLS = "true"
+$env:DEVICEOPS_MQTT_USERNAME = Read-Host "HiveMQ username"
+$env:DEVICEOPS_MQTT_PASSWORD = Read-Host "HiveMQ password"
+python -m uvicorn deviceops_api.main:app --host 127.0.0.1 --port 8000
+Remove-Item Env:DEVICEOPS_MQTT_USERNAME
+Remove-Item Env:DEVICEOPS_MQTT_PASSWORD
+```
+
+Username and password must either both be present or both be absent. TLS uses
+the operating system CA trust store with certificate-chain and hostname
+verification. Broker authentication is additional to, and does not replace,
+DeviceOps per-device HMAC message authentication. Remove the credential
+environment variables from the shell after stopping the API, as shown above.
 
 The backend uses one short synchronous SQLAlchemy session per HTTP request or
 MQTT message. A malformed message is logged and rejected without stopping the

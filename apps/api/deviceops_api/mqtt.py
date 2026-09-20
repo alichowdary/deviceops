@@ -69,6 +69,16 @@ class MqttIngestor:
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
+        if settings.mqtt_username is not None:
+            self._client.username_pw_set(
+                settings.mqtt_username,
+                settings.mqtt_password,
+            )
+        if settings.mqtt_tls:
+            # Paho's default context uses the system CA trust store and verifies
+            # both the certificate chain and broker hostname.
+            self._client.tls_set()
+            self._client.tls_insecure_set(False)
 
     @property
     def connected(self) -> bool:
@@ -83,9 +93,10 @@ class MqttIngestor:
             return
         self._stopping = False
         logger.info(
-            "Starting MQTT connection to %s:%s",
+            "Starting MQTT connection to %s:%s (TLS %s)",
             settings.mqtt_host,
             settings.mqtt_port,
+            "enabled" if settings.mqtt_tls else "disabled",
         )
         self._client.connect_async(settings.mqtt_host, settings.mqtt_port, keepalive=30)
         self._client.loop_start()

@@ -6,18 +6,19 @@
 #include <MQTT.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <time.h>
 
 #include <cstring>
 
+#include "isrg_root_x1.h"
 #include "mqtt_auth.h"
 #include "secrets.h"
 
 
 namespace {
 
-constexpr uint16_t MQTT_PORT = 1883;
 constexpr size_t TOPIC_BUFFER_SIZE = 128;
 constexpr size_t MQTT_BUFFER_SIZE = 3072;
 
@@ -31,7 +32,8 @@ constexpr uint32_t MAX_TELEMETRY_INTERVAL_S = 60;
 constexpr char CONFIG_NAMESPACE[] = "deviceops";
 constexpr char REPORTING_INTERVAL_KEY[] = "report_s";
 
-WiFiClient network;
+WiFiClient plaintextNetwork;
+WiFiClientSecure secureNetwork;
 MQTTClient mqttClient(MQTT_BUFFER_SIZE);
 Adafruit_BME280 bme;
 Adafruit_NeoPixel rgbLed(1, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -153,6 +155,18 @@ bool initializeDeviceAuthentication() {
     }
     if (WIFI_SSID[0] == '\0' || MQTT_BROKER[0] == '\0') {
         Serial.println("Wi-Fi SSID and MQTT broker must not be empty.");
+        return false;
+    }
+    if (MQTT_PORT == 0) {
+        Serial.println("MQTT port must be from 1 to 65535.");
+        return false;
+    }
+    const bool mqttUsernameConfigured = MQTT_USERNAME[0] != '\0';
+    const bool mqttPasswordConfigured = MQTT_PASSWORD[0] != '\0';
+    if (mqttUsernameConfigured != mqttPasswordConfigured) {
+        Serial.println(
+            "MQTT username and password must be configured together."
+        );
         return false;
     }
     if (
@@ -626,7 +640,11 @@ void connectMqtt() {
     Serial.print("Connecting to MQTT");
 
     while (!mqttClient.connected()) {
-        if (mqttClient.connect(DEVICE_ID)) {
+        const bool hasBrokerCredentials = MQTT_USERNAME[0] != '\0';
+        const bool connected = hasBrokerCredentials
+            ? mqttClient.connect(DEVICE_ID, MQTT_USERNAME, MQTT_PASSWORD)
+            : mqttClient.connect(DEVICE_ID);
+        if (connected) {
             Serial.println();
             Serial.println("MQTT connected!");
 
@@ -643,7 +661,11 @@ void connectMqtt() {
                 Serial.println("Failed to subscribe to command topic.");
             }
         } else {
-            Serial.print(".");
+            Serial.println();
+            Serial.print("MQTT connection failed: lastError=");
+            Serial.print(static_cast<int>(mqttClient.lastError()));
+            Serial.print(" returnCode=");
+            Serial.println(static_cast<int>(mqttClient.returnCode()));
             delay(1000);
         }
     }
@@ -771,7 +793,12 @@ void setup() {
         haltStartup();
     }
 
-    mqttClient.begin(MQTT_BROKER, MQTT_PORT, network);
+    if (MQTT_TLS_ENABLED) {
+        secureNetwork.setCACert(ISRG_ROOT_X1);
+        mqttClient.begin(MQTT_BROKER, MQTT_PORT, secureNetwork);
+    } else {
+        mqttClient.begin(MQTT_BROKER, MQTT_PORT, plaintextNetwork);
+    }
     mqttClient.onMessage(handleCommand);
     mqttClient.setWill(statusTopic, offlineEnvelope.c_str(), true, 1);
     mqttClient.setKeepAlive(5);

@@ -23,6 +23,29 @@ def _positive_integer_environment_value(name: str, default: int) -> int:
     return value
 
 
+def _boolean_environment_value(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    normalized_value = raw_value.strip().lower()
+    if normalized_value in {"1", "true", "yes", "on"}:
+        return True
+    if normalized_value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{name} must be true/false, yes/no, on/off, or 1/0"
+    )
+
+
+def _optional_environment_value(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    if not value.strip():
+        raise ValueError(f"{name} must not be empty when set")
+    return value
+
+
 def _nonempty_environment_value(name: str, default: str) -> str:
     value = os.getenv(name, default)
     if not value.strip():
@@ -36,12 +59,27 @@ class Settings:
     mqtt_host: str
     mqtt_port: int
     mqtt_client_id: str
+    mqtt_username: str | None
+    mqtt_password: str | None
+    mqtt_tls: bool
     cors_origins: tuple[str, ...]
     auth_secret: str
     auth_token_lifetime_seconds: int
 
     @classmethod
     def from_environment(cls) -> "Settings":
+        mqtt_username = _optional_environment_value(
+            "DEVICEOPS_MQTT_USERNAME"
+        )
+        mqtt_password = _optional_environment_value(
+            "DEVICEOPS_MQTT_PASSWORD"
+        )
+        if (mqtt_username is None) != (mqtt_password is None):
+            raise ValueError(
+                "DEVICEOPS_MQTT_USERNAME and DEVICEOPS_MQTT_PASSWORD "
+                "must be configured together"
+            )
+
         return cls(
             database_url=os.getenv(
                 "DEVICEOPS_DATABASE_URL",
@@ -50,6 +88,11 @@ class Settings:
             mqtt_host=os.getenv("DEVICEOPS_MQTT_HOST", "localhost"),
             mqtt_port=_integer_environment_value("DEVICEOPS_MQTT_PORT", 1883),
             mqtt_client_id=os.getenv("DEVICEOPS_MQTT_CLIENT_ID", "deviceops-api"),
+            mqtt_username=mqtt_username,
+            mqtt_password=mqtt_password,
+            mqtt_tls=_boolean_environment_value(
+                "DEVICEOPS_MQTT_TLS", False
+            ),
             cors_origins=tuple(
                 origin.strip()
                 for origin in os.getenv(

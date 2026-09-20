@@ -50,6 +50,27 @@ Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 python -m device_simulator --device-id <registered-device-id> --interval 2.5 --broker-host localhost --broker-port 1883
 ```
 
+The local command remains anonymous and plaintext. To connect to the production
+HiveMQ Cloud broker, read broker credentials into environment variables and opt
+in to verified TLS explicitly:
+
+```powershell
+$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
+$env:DEVICEOPS_MQTT_USERNAME = Read-Host "HiveMQ username"
+$env:DEVICEOPS_MQTT_PASSWORD = Read-Host "HiveMQ password"
+python -m device_simulator --device-id <registered-device-id> `
+  --broker-host 4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud `
+  --broker-port 8883 --tls
+Remove-Item Env:DEVICEOPS_DEVICE_SECRET
+Remove-Item Env:DEVICEOPS_MQTT_USERNAME
+Remove-Item Env:DEVICEOPS_MQTT_PASSWORD
+```
+
+`--tls` uses Python's system CA trust store and verifies both the broker
+certificate chain and hostname. Broker username/password authentication does
+not replace the existing per-device HMAC envelope authentication. The simulator
+never prints either password.
+
 Choose the alternate portable sensor with `--profile portable-sensor`:
 
 ```powershell
@@ -68,7 +89,8 @@ The available profiles are:
 
 Run `python -m device_simulator --help` to see all CLI options.
 
-Startup fails before connecting if `DEVICEOPS_DEVICE_SECRET` is absent or empty.
+Startup fails before connecting if `DEVICEOPS_DEVICE_SECRET` is absent or empty,
+or if only one broker credential is configured.
 The secret is hashed locally to derive the MQTT signing key and is never sent in
 an MQTT payload.
 

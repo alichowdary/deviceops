@@ -83,6 +83,11 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         help="MQTT broker TCP port (default: 1883)",
     )
     parser.add_argument(
+        "--tls",
+        action="store_true",
+        help="use verified TLS with the system CA trust store",
+    )
+    parser.add_argument(
         "--interval",
         type=positive_interval,
         default=5.0,
@@ -95,6 +100,41 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         help="simulated device profile (default: default)",
     )
     return parser.parse_args(arguments)
+
+
+def broker_credentials_from_environment() -> tuple[str | None, str | None]:
+    username = os.getenv("DEVICEOPS_MQTT_USERNAME")
+    password = os.getenv("DEVICEOPS_MQTT_PASSWORD")
+    if username is not None and not username.strip():
+        raise ValueError("DEVICEOPS_MQTT_USERNAME must not be empty when set")
+    if password is not None and not password.strip():
+        raise ValueError("DEVICEOPS_MQTT_PASSWORD must not be empty when set")
+    if (username is None) != (password is None):
+        raise ValueError(
+            "DEVICEOPS_MQTT_USERNAME and DEVICEOPS_MQTT_PASSWORD "
+            "must be configured together"
+        )
+    return username, password
+
+
+def configure_mqtt_transport(
+    client: mqtt.Client,
+    *,
+    tls_enabled: bool,
+    username: str | None,
+    password: str | None,
+) -> None:
+    """Configure optional broker auth and verified TLS without changing HMAC."""
+
+    if (username is None) != (password is None):
+        raise ValueError("MQTT broker username and password must be configured together")
+    if username is not None:
+        client.username_pw_set(username, password)
+    if tls_enabled:
+        # Paho loads the system CA store and enables certificate and hostname
+        # verification by default. Keep insecure mode explicitly disabled.
+        client.tls_set()
+        client.tls_insecure_set(False)
 
 
 def _utc_timestamp() -> str:
@@ -130,6 +170,10 @@ def run(
     broker_port_value: int,
     device_secret: str,
     profile_name: str = "default",
+    *,
+    broker_tls: bool = False,
+    broker_username: str | None = None,
+    broker_password: str | None = None,
 ) -> int:
     profile: SimulatorProfile = get_profile(profile_name)
     telemetry_topic = f"deviceops/v1/devices/{device_id_value}/telemetry"
@@ -167,6 +211,12 @@ def run(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=device_id_value,
         protocol=mqtt.MQTTv311,
+    )
+    configure_mqtt_transport(
+        client,
+        tls_enabled=broker_tls,
+        username=broker_username,
+        password=broker_password,
     )
     client.will_set(status_topic, payload=offline_envelope, qos=1, retain=True)
 
@@ -418,7 +468,8 @@ def run(
 
     print(
         f"Connecting {device_id_value} ({profile.name}) to "
-        f"mqtt://{broker_host}:{broker_port_value} ...",
+        f"{'mqtts' if broker_tls else 'mqtt'}://"
+        f"{broker_host}:{broker_port_value} ...",
         flush=True,
     )
     try:
@@ -523,6 +574,11 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(2)
+    try:
+        broker_username, broker_password = broker_credentials_from_environment()
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, signal.default_int_handler)
     raise SystemExit(
@@ -533,5 +589,8 @@ def main() -> None:
             args.broker_port,
             device_secret,
             args.profile,
+            broker_tls=args.tls,
+            broker_username=broker_username,
+            broker_password=broker_password,
         )
     )

@@ -28,12 +28,31 @@ From `firmware/esp32`, create the ignored local header:
 Copy-Item include\secrets.example.h include\secrets.h
 ```
 
-Edit `include/secrets.h` and set `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_BROKER`,
-`DEVICE_ID`, and `DEVICE_SECRET`. The device ID and one-time secret come from a
-DeviceOps device registration. Use the LAN IPv4 address of the computer running
-Mosquitto for `MQTT_BROKER`; `127.0.0.1` would refer to the ESP32 itself. The
-committed example contains placeholders only. The real `secrets.h` is ignored by
-Git and must never be committed.
+Edit `include/secrets.h` and set the Wi-Fi, MQTT, `DEVICE_ID`, and
+`DEVICE_SECRET` values. The device ID and one-time secret come from a DeviceOps
+device registration. The committed example contains placeholders only. The real
+`secrets.h` is ignored by Git and must never be committed.
+
+For local anonymous Mosquitto, use the computer's LAN IPv4 address, port `1883`,
+`MQTT_TLS_ENABLED = false`, and empty MQTT username/password strings.
+`127.0.0.1` would refer to the ESP32 itself.
+
+For HiveMQ Cloud, use this transport shape with your locally supplied broker
+credentials:
+
+```cpp
+constexpr char MQTT_BROKER[] =
+    "4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud";
+constexpr uint16_t MQTT_PORT = 8883;
+constexpr bool MQTT_TLS_ENABLED = true;
+constexpr char MQTT_USERNAME[] = "YOUR_HIVEMQ_USERNAME";
+constexpr char MQTT_PASSWORD[] = "YOUR_HIVEMQ_PASSWORD";
+```
+
+TLS mode uses `WiFiClientSecure`, verifies the broker hostname and certificate
+chain, and trusts the committed public Let's Encrypt ISRG Root X1 CA. It never
+uses insecure certificate mode. Broker authentication remains separate from the
+existing signed DeviceOps message envelopes.
 
 ## Build, upload, and monitor
 
