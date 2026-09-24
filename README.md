@@ -12,7 +12,7 @@ being hard-coded to a particular sensor.
 
 - [Live site](https://deviceops.net)
 - [About DeviceOps](https://deviceops.net/about)
-- [Try or reproduce DeviceOps](#try--reproduce-deviceops)
+- [Run DeviceOps](#run-deviceops)
 - [MQTT protocol v1](contracts/mqtt.md)
 
 ![Production DeviceOps Air Sensor view with live capability-driven telemetry, numeric charts, controls, and a successful command acknowledgement.](apps/web/public/images/air-sensor-capabilities.png)
@@ -45,12 +45,12 @@ only that committed acknowledgement can mark it `succeeded` or `failed`.
 
 ### Production deployment
 
-| Responsibility | Deployment |
-| --- | --- |
-| Next.js frontend and custom domain | Vercel at [deviceops.net](https://deviceops.net) |
-| FastAPI backend | Fly.io |
-| PostgreSQL | Supabase |
-| MQTT broker | HiveMQ Cloud with broker authentication and verified TLS |
+| Responsibility                     | Deployment                                               |
+| ---------------------------------- | -------------------------------------------------------- |
+| Next.js frontend and custom domain | Vercel at [deviceops.net](https://deviceops.net)         |
+| FastAPI backend                    | Fly.io                                                   |
+| PostgreSQL                         | Supabase                                                 |
+| MQTT broker                        | HiveMQ Cloud with broker authentication and verified TLS |
 
 Local development uses Docker Compose, PostgreSQL, and Eclipse Mosquitto. The
 repository's anonymous plaintext Mosquitto listener is intentionally local-only
@@ -150,15 +150,15 @@ Complete setup and configuration:
 
 ## Repository structure
 
-| Path | Purpose |
-| --- | --- |
-| `apps/api` | FastAPI REST/WebSocket service, MQTT ingestion, alerts, retention, and Alembic migrations |
-| `apps/web` | Next.js public site and authenticated operations console |
-| `contracts` | Versioned MQTT topic and payload contract |
-| `firmware/esp32` | Verified ESP32-S3 + BME280 PlatformIO implementation |
-| `simulator` | Python device simulator and selectable capability profiles |
-| `infra/mosquitto` | Local-development Mosquitto configuration |
-| `docker-compose.yml` | Local PostgreSQL and Mosquitto services |
+| Path                 | Purpose                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `apps/api`           | FastAPI REST/WebSocket service, MQTT ingestion, alerts, retention, and Alembic migrations |
+| `apps/web`           | Next.js public site and authenticated operations console                                  |
+| `contracts`          | Versioned MQTT topic and payload contract                                                 |
+| `firmware/esp32`     | Verified ESP32-S3 + BME280 PlatformIO implementation                                      |
+| `simulator`          | Python device simulator and selectable capability profiles                                |
+| `infra/mosquitto`    | Local-development Mosquitto configuration                                                 |
+| `docker-compose.yml` | Local PostgreSQL and Mosquitto services                                                   |
 
 ## Intentional boundaries
 
