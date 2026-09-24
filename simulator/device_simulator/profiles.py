@@ -6,7 +6,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .telemetry import PortableTelemetryGenerator, TelemetryGenerator
+from .telemetry import (
+    AirQualityTelemetryGenerator,
+    PortableTelemetryGenerator,
+    TelemetryGenerator,
+)
 
 
 class TelemetrySource(Protocol):
@@ -127,9 +131,41 @@ PORTABLE_SENSOR_PROFILE = SimulatorProfile(
 )
 
 
+AIR_QUALITY_PROFILE = SimulatorProfile(
+    name="air-quality",
+    telemetry={
+        "co2_ppm": {
+            "type": "number",
+            "label": "CO₂",
+            "unit": "ppm",
+        },
+        "voc_index": {
+            "type": "number",
+            "label": "VOC index",
+        },
+        "occupied": {
+            "type": "boolean",
+            "label": "Occupied",
+        },
+        "air_quality": {
+            "type": "string",
+            "label": "Air quality",
+        },
+    },
+    commands={
+        "request_diagnostics": {
+            "label": "Request diagnostics",
+            "arguments": {},
+        },
+    },
+    generator_type=AirQualityTelemetryGenerator,
+)
+
+
 PROFILES = {
     DEFAULT_PROFILE.name: DEFAULT_PROFILE,
     PORTABLE_SENSOR_PROFILE.name: PORTABLE_SENSOR_PROFILE,
+    AIR_QUALITY_PROFILE.name: AIR_QUALITY_PROFILE,
 }
 PROFILE_NAMES = tuple(PROFILES)
 

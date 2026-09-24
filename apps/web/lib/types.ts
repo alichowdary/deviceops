@@ -40,12 +40,12 @@ export interface Telemetry {
   sequence: number;
   sent_at: string;
   received_at: string;
-  temperature_c: number;
+  temperature_c: number | null;
   battery_pct: number | null;
   humidity_pct: number | null;
   pressure_hpa: number | null;
-  rssi_dbm: number;
-  uptime_s: number;
+  rssi_dbm: number | null;
+  uptime_s: number | null;
   additional_metrics: Record<string, unknown> | null;
 }
 

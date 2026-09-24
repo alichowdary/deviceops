@@ -84,3 +84,45 @@ class PortableTelemetryGenerator:
                 "uptime_s": int(time.monotonic() - self._started_at),
             },
         }
+
+
+@dataclass
+class AirQualityTelemetryGenerator:
+    """Deterministic indoor air-quality telemetry with no legacy metrics."""
+
+    device_id: str
+    _sequence: int = field(default=0, init=False)
+
+    def next_message(self) -> dict[str, Any]:
+        self._sequence += 1
+
+        cycle = (self._sequence - 1) % 24
+        occupied = cycle < 16
+        if occupied:
+            co2_ppm = 520 + cycle * 48
+            voc_index = 72 + cycle * 5
+        else:
+            recovery = cycle - 16
+            co2_ppm = 1190 - recovery * 80
+            voc_index = 142 - recovery * 8
+
+        if co2_ppm < 800 and voc_index < 100:
+            air_quality = "Good"
+        elif co2_ppm < 1100 and voc_index < 140:
+            air_quality = "Fair"
+        else:
+            air_quality = "Poor"
+
+        sent_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        return {
+            "protocol_version": 1,
+            "device_id": self.device_id,
+            "sent_at": sent_at.replace("+00:00", "Z"),
+            "sequence": self._sequence,
+            "metrics": {
+                "co2_ppm": co2_ppm,
+                "voc_index": voc_index,
+                "occupied": occupied,
+                "air_quality": air_quality,
+            },
+        }

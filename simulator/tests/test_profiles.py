@@ -6,7 +6,11 @@ import unittest
 
 from device_simulator.commands import SimulatorCommandState, execute_command
 from device_simulator.main import build_capability_manifest, parse_args
-from device_simulator.profiles import DEFAULT_PROFILE, PORTABLE_SENSOR_PROFILE
+from device_simulator.profiles import (
+    AIR_QUALITY_PROFILE,
+    DEFAULT_PROFILE,
+    PORTABLE_SENSOR_PROFILE,
+)
 
 
 class ProfileTests(unittest.TestCase):
@@ -20,6 +24,12 @@ class ProfileTests(unittest.TestCase):
             ["--device-id", "sim-portable", "--profile", "portable-sensor"]
         )
         self.assertEqual(args.profile, "portable-sensor")
+
+    def test_cli_accepts_air_quality_profile(self) -> None:
+        args = parse_args(
+            ["--device-id", "sim-air", "--profile", "air-quality"]
+        )
+        self.assertEqual(args.profile, "air-quality")
 
     def test_default_manifest_remains_unchanged(self) -> None:
         manifest = build_capability_manifest("sim-default")
@@ -98,6 +108,47 @@ class ProfileTests(unittest.TestCase):
         self.assertNotEqual(first["light_lux"], second["light_lux"])
         self.assertNotIn("humidity_pct", first)
         self.assertNotIn("pressure_hpa", first)
+
+    def test_air_quality_profile_has_only_dynamic_scalar_metrics(self) -> None:
+        manifest = build_capability_manifest("sim-air", "air-quality")
+        self.assertEqual(
+            manifest["telemetry"],
+            {
+                "co2_ppm": {
+                    "type": "number",
+                    "label": "CO₂",
+                    "unit": "ppm",
+                },
+                "voc_index": {"type": "number", "label": "VOC index"},
+                "occupied": {"type": "boolean", "label": "Occupied"},
+                "air_quality": {"type": "string", "label": "Air quality"},
+            },
+        )
+        self.assertEqual(set(manifest["commands"]), {"request_diagnostics"})
+
+        generator = AIR_QUALITY_PROFILE.create_generator("sim-air")
+        samples = [generator.next_message()["metrics"] for _ in range(24)]
+        historical_names = {
+            "temperature_c",
+            "battery_pct",
+            "humidity_pct",
+            "pressure_hpa",
+            "rssi_dbm",
+            "uptime_s",
+        }
+        self.assertTrue(
+            all(not historical_names.intersection(sample) for sample in samples)
+        )
+        self.assertTrue(
+            all(set(sample) == set(manifest["telemetry"]) for sample in samples)
+        )
+        self.assertTrue(all(isinstance(sample["co2_ppm"], int) for sample in samples))
+        self.assertTrue(all(isinstance(sample["voc_index"], int) for sample in samples))
+        self.assertEqual({sample["occupied"] for sample in samples}, {True, False})
+        self.assertEqual(
+            {sample["air_quality"] for sample in samples},
+            {"Good", "Fair", "Poor"},
+        )
 
     def test_portable_rejects_unadvertised_commands(self) -> None:
         state = SimulatorCommandState(reporting_interval=5.0)

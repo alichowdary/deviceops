@@ -535,12 +535,11 @@ def run(
                 )
 
             metrics = payload["metrics"]
+            rendered_metrics = " ".join(
+                f"{name}={value}" for name, value in metrics.items()
+            )
             print(
-                f"telemetry seq={payload['sequence']} "
-                f"temp={metrics['temperature_c']:.1f}C "
-                f"battery={metrics['battery_pct']:.2f}% "
-                f"rssi={metrics['rssi_dbm']}dBm "
-                f"uptime={metrics['uptime_s']}s"
+                f"telemetry seq={payload['sequence']} {rendered_metrics}"
             )
             with state_changed:
                 state_changed.wait(timeout=command_state.reporting_interval)

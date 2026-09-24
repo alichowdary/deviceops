@@ -116,25 +116,31 @@ The telemetry envelope body is this existing JSON object serialized as a string:
 | `device_id` | string | Must exactly match `{device_id}` in the topic. |
 | `sent_at` | string | Device time as a UTC ISO-8601 timestamp ending in `Z`. |
 | `sequence` | integer | Starts at `1` and increases once per telemetry message for the lifetime of the device process. |
-| `metrics.temperature_c` | number | Temperature in degrees Celsius. |
+| `metrics.temperature_c` | number, optional | Temperature in degrees Celsius. |
 | `metrics.battery_pct` | number, optional | Remaining battery percentage from `0` to `100`. Omit it for devices without a battery. |
 | `metrics.humidity_pct` | number, optional | Relative humidity percentage from `0` to `100`. |
 | `metrics.pressure_hpa` | number, optional | Atmospheric pressure in hectopascals. |
-| `metrics.rssi_dbm` | integer | Wi-Fi received signal strength in dBm; values nearer zero are stronger. |
-| `metrics.uptime_s` | integer | Monotonically increasing seconds since the device process started. |
+| `metrics.rssi_dbm` | integer, optional | Wi-Fi received signal strength in dBm; values nearer zero are stronger. |
+| `metrics.uptime_s` | integer, optional | Monotonically increasing seconds since the device process started. |
 
-`temperature_c`, `rssi_dbm`, and `uptime_s` are required in version 1.
-`battery_pct`, `humidity_pct`, and `pressure_hpa` are first-class optional
-measurements. Devices report the measurements they actually support and omit
-unavailable optional measurements instead of publishing fabricated values. The
-API represents an omitted first-class measurement as `null` in REST and
-WebSocket responses.
+The metadata fields `protocol_version`, `device_id`, `sent_at`, `sequence`, and
+`metrics` remain required. `metrics` must contain at least one non-null value,
+but no particular sensor metric is universally required. `temperature_c`,
+`battery_pct`, `humidity_pct`, `pressure_hpa`, `rssi_dbm`, and `uptime_s` are
+historical first-class names with optimized database columns; all six are
+optional. Devices report the measurements they actually support and omit
+unavailable measurements instead of publishing fabricated values. The API
+represents an omitted first-class measurement as `null` in REST and WebSocket
+responses.
 
 Metrics stay under the `metrics` object so compatible sensors can be added
-without mixing measurements with message metadata. Additional numeric or
-structured measurements remain accepted and are stored in `additional_metrics`.
-The additive capability manifest below now supplies the version 1 dynamic metric
-definitions; it does not change the telemetry payload or topic.
+without mixing measurements with message metadata. Arbitrary additional metrics
+with safe names are stored in `additional_metrics`. The additive capability
+manifest below supplies version 1 display definitions for compatible scalar
+values; it does not change the telemetry payload or topic. Supported capability
+value types are `number`, `integer`, `boolean`, and `string`. Arrays, binary
+blobs, images, audio, video, and arbitrary structured visualizations are not
+capability types.
 
 Telemetry uses QoS 0 and is not retained. It is frequent, and a later reading
 supersedes a missed individual reading, so broker acknowledgement and retry are
@@ -195,7 +201,11 @@ Version 1 command capabilities may be any subset of `set_led`,
 `set_reporting_interval`, and `request_diagnostics`, using their existing
 protocol-v1 argument shapes. This declaration does not enable arbitrary command
 execution. Telemetry may declare the first-class metrics above or additional
-safe names stored by ingestion in `additional_metrics`.
+safe names stored by ingestion in `additional_metrics`. The console uses these
+telemetry descriptors as its display source: numeric values receive value cards
+and charts, while boolean and string values receive displayed values without
+numeric charts. A manifest does not make any advertised metric mandatory in
+each telemetry message.
 
 `device_id` remains the stable protocol identity. A future human-friendly
 display name would be separate metadata and must not replace it.

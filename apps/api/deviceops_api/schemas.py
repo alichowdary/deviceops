@@ -133,7 +133,7 @@ class DeviceRegistrationRead(BaseModel):
 class TelemetryMetrics(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    temperature_c: float = Field(allow_inf_nan=False)
+    temperature_c: float | None = Field(default=None, allow_inf_nan=False)
     battery_pct: float | None = Field(
         default=None, ge=0, le=100, allow_inf_nan=False
     )
@@ -141,8 +141,25 @@ class TelemetryMetrics(BaseModel):
         default=None, ge=0, le=100, allow_inf_nan=False
     )
     pressure_hpa: float | None = Field(default=None, allow_inf_nan=False)
-    rssi_dbm: int
-    uptime_s: int = Field(ge=0)
+    rssi_dbm: int | None = None
+    uptime_s: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def require_at_least_one_metric(self) -> "TelemetryMetrics":
+        first_class_values = (
+            self.temperature_c,
+            self.battery_pct,
+            self.humidity_pct,
+            self.pressure_hpa,
+            self.rssi_dbm,
+            self.uptime_s,
+        )
+        additional_values = (self.model_extra or {}).values()
+        if not any(value is not None for value in first_class_values) and not any(
+            value is not None for value in additional_values
+        ):
+            raise ValueError("metrics must contain at least one value")
+        return self
 
 
 class TelemetryPayload(BaseModel):
@@ -339,12 +356,12 @@ class TelemetryRead(BaseModel):
     sequence: int
     sent_at: datetime
     received_at: datetime
-    temperature_c: float
+    temperature_c: float | None
     battery_pct: float | None
     humidity_pct: float | None
     pressure_hpa: float | None
-    rssi_dbm: int
-    uptime_s: int
+    rssi_dbm: int | None
+    uptime_s: int | None
     additional_metrics: dict[str, Any] | None
 
 

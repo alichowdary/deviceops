@@ -191,6 +191,14 @@ A missing, null, non-numeric, boolean, or non-finite value leaves the current
 lifecycle unchanged and is never treated as zero. Evaluation runs in its own
 short transaction, so an alert failure cannot roll back accepted telemetry.
 
+Telemetry protocol v1 requires its metadata and at least one metric value, but
+does not require a universal sensor field. The optimized `temperature_c`,
+`battery_pct`, `humidity_pct`, `pressure_hpa`, `rssi_dbm`, and `uptime_s` fields
+are all optional. Omitted optimized values persist as SQL `NULL` and serialize
+as JSON `null`; additional metrics persist in `additional_metrics`. Advertising
+one metric in a capability manifest does not require a device to publish it in
+every sample or require any unrelated optimized field.
+
 Offline rules use persisted `offline_since` state and open only after a previously
 connected device remains explicitly offline for the configured duration. Unknown
 and never-connected devices do not alert. A one-second in-process task evaluates
@@ -396,10 +404,10 @@ Telemetry events use this envelope:
 }
 ```
 
-Battery, humidity, and pressure are nullable first-class measurements. The
-simulator supplies battery, while a sensor device may omit battery and supply
-humidity and pressure. Omitted measurements are returned as `null`; unknown
-compatible measurements continue to use `additional_metrics`.
+All six first-class measurements are nullable. Existing simulator and BME-style
+payloads keep their full values, while another device may publish only dynamic
+metrics. Omitted measurements are returned as `null`; unknown compatible
+measurements continue to use `additional_metrics`.
 
 Status events use the same outer fields with a smaller payload:
 

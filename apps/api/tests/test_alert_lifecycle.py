@@ -200,35 +200,39 @@ class AlertLifecycleTests(unittest.TestCase):
     def test_additional_numeric_metric_opens_resolves_and_missing_is_unchanged(self) -> None:
         self.device.capabilities = {
             "telemetry": {
-                "light_lux": {
+                "co2_ppm": {
                     "type": "number",
-                    "label": "Ambient light",
-                    "unit": "lux",
-                }
+                    "label": "CO₂",
+                    "unit": "ppm",
+                },
+                "occupied": {"type": "boolean", "label": "Occupied"},
+                "air_quality": {"type": "string", "label": "Air quality"},
             }
         }
         self.session.commit()
         rule = self._metric_rule(
-            name="Bright room", metric="light_lux", threshold=250
+            name="High CO2", metric="co2_ppm", threshold=1000
         )
         sample = Telemetry(
             device_id=self.device.device_id,
             sequence=1,
             sent_at=self.now,
             received_at=self.now,
-            temperature_c=22,
-            battery_pct=80,
+            temperature_c=None,
+            battery_pct=None,
             humidity_pct=None,
             pressure_hpa=None,
-            rssi_dbm=-55,
-            uptime_s=120,
+            rssi_dbm=None,
+            uptime_s=None,
             additional_metrics={
-                "light_lux": 275.5,
-                "motion_detected": True,
+                "co2_ppm": 1125,
+                "occupied": True,
+                "air_quality": "Poor",
             },
         )
         metrics = telemetry_metric_values(sample)
-        self.assertEqual(metrics["light_lux"], 275.5)
+        self.assertEqual(metrics["co2_ppm"], 1125)
+        self.assertIsNone(metrics["temperature_c"])
 
         opened = evaluate_metric_rules(
             self.session,
@@ -240,7 +244,13 @@ class AlertLifecycleTests(unittest.TestCase):
         self.assertEqual(len(opened), 1)
         self.assertEqual(self._alerts(rule.id)[0].status, "active")
 
-        for incompatible in ({}, {"light_lux": None}, {"light_lux": "240"}, {"light_lux": True}, {"light_lux": float("nan")}):
+        for incompatible in (
+            {},
+            {"co2_ppm": None},
+            {"co2_ppm": "900"},
+            {"co2_ppm": True},
+            {"co2_ppm": float("nan")},
+        ):
             with self.subTest(metrics=incompatible):
                 changes = evaluate_metric_rules(
                     self.session,
@@ -255,7 +265,7 @@ class AlertLifecycleTests(unittest.TestCase):
         resolved = evaluate_metric_rules(
             self.session,
             device_id=self.device.device_id,
-            metrics={"light_lux": 200},
+            metrics={"co2_ppm": 850},
             observed_at=self.now + timedelta(seconds=3),
         )
         self.session.commit()
@@ -263,7 +273,7 @@ class AlertLifecycleTests(unittest.TestCase):
         self.assertEqual(self._alerts(rule.id)[0].status, "resolved")
         self.assertEqual(
             self._alerts(rule.id)[0].condition,
-            "Ambient light > 250 lux",
+            "CO₂ > 1000 ppm",
         )
 
     def test_first_class_uptime_integer_metric_evaluates(self) -> None:

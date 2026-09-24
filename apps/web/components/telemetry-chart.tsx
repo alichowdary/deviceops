@@ -50,7 +50,7 @@ export function TelemetryChart({
     <section className="chart-panel">
       <div className="chart-heading">
         <span className="chart-title">{label}</span>
-        <span className="chart-unit">{descriptor.unit ?? descriptor.type}</span>
+        <span className="chart-unit">{descriptor.unit ?? ""}</span>
       </div>
       <div className="chart-canvas">
         <ResponsiveContainer height="100%" width="100%">

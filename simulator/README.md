@@ -77,6 +77,13 @@ Choose the alternate portable sensor with `--profile portable-sensor`:
 python -m device_simulator --device-id <registered-device-id> --profile portable-sensor
 ```
 
+To exercise a device with no historical first-class telemetry fields, use the
+air-quality profile:
+
+```powershell
+python -m device_simulator --device-id <registered-device-id> --profile air-quality
+```
+
 The available profiles are:
 
 - `default`: preserves the original simulator behavior. It emits temperature,
@@ -86,6 +93,11 @@ The available profiles are:
   RSSI, and uptime. It supports diagnostics only. Ambient light and motion are
   additional protocol metrics; motion is boolean and therefore is not charted
   by the capability-driven console.
+- `air-quality`: emits only dynamic `co2_ppm`, `voc_index`, `occupied`, and
+  `air_quality` metrics. It supports diagnostics only. CO₂ and VOC index are
+  charted numeric values; occupied and air quality are displayed as boolean and
+  string values without numeric charts. It deliberately emits none of the six
+  historical first-class metric names.
 
 Run `python -m device_simulator --help` to see all CLI options.
 

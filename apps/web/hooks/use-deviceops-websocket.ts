@@ -68,8 +68,26 @@ function isEventSeverity(value: unknown): value is EventSeverity {
   );
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function isNullableNumber(value: unknown): value is number | null {
-  return value === null || typeof value === "number";
+  return value === null || isFiniteNumber(value);
+}
+
+function isNullableInteger(value: unknown): value is number | null {
+  return value === null || (isFiniteNumber(value) && Number.isInteger(value));
+}
+
+function isNullablePercentage(value: unknown): value is number | null {
+  return value === null || (isFiniteNumber(value) && value >= 0 && value <= 100);
+}
+
+function isNullableRecord(
+  value: unknown,
+): value is Record<string, unknown> | null {
+  return value === null || (isRecord(value) && !Array.isArray(value));
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -160,12 +178,14 @@ function parseEvent(rawMessage: string): DeviceOpsEvent | null {
     typeof event.data.id === "number" &&
     typeof event.data.sequence === "number" &&
     typeof event.data.sent_at === "string" &&
-    typeof event.data.temperature_c === "number" &&
-    isNullableNumber(event.data.battery_pct) &&
-    isNullableNumber(event.data.humidity_pct) &&
+    isNullableNumber(event.data.temperature_c) &&
+    isNullablePercentage(event.data.battery_pct) &&
+    isNullablePercentage(event.data.humidity_pct) &&
     isNullableNumber(event.data.pressure_hpa) &&
-    typeof event.data.rssi_dbm === "number" &&
-    typeof event.data.uptime_s === "number"
+    isNullableInteger(event.data.rssi_dbm) &&
+    isNullableInteger(event.data.uptime_s) &&
+    (event.data.uptime_s === null || event.data.uptime_s >= 0) &&
+    isNullableRecord(event.data.additional_metrics)
   ) {
     return event as unknown as DeviceOpsEvent;
   }
