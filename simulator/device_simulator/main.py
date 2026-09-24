@@ -36,10 +36,13 @@ COMMAND_ID_PATTERN = re.compile(
 )
 
 
-def positive_interval(value: str) -> float:
-    interval = float(value)
-    if interval <= 0:
-        raise argparse.ArgumentTypeError("interval must be greater than zero")
+def reporting_interval(value: str) -> int:
+    try:
+        interval = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("interval must be an integer") from exc
+    if not 1 <= interval <= 60:
+        raise argparse.ArgumentTypeError("interval must be from 1 to 60 seconds")
     return interval
 
 
@@ -89,9 +92,9 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--interval",
-        type=positive_interval,
-        default=5.0,
-        help="seconds between telemetry messages (default: 5)",
+        type=reporting_interval,
+        default=5,
+        help="whole seconds between telemetry messages, 1-60 (default: 5)",
     )
     parser.add_argument(
         "--profile",
@@ -165,7 +168,7 @@ def build_capability_manifest(
 
 def run(
     device_id_value: str,
-    interval: float,
+    interval: int,
     broker_host: str,
     broker_port_value: int,
     device_secret: str,

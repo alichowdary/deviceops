@@ -17,7 +17,21 @@ class ProfileTests(unittest.TestCase):
     def test_cli_defaults_to_existing_profile(self) -> None:
         args = parse_args(["--device-id", "sim-default"])
         self.assertEqual(args.profile, "default")
-        self.assertEqual(args.interval, 5.0)
+        self.assertEqual(args.interval, 5)
+
+    def test_cli_reporting_interval_is_whole_seconds_from_one_to_sixty(self) -> None:
+        for interval in (1, 2, 60):
+            with self.subTest(interval=interval):
+                args = parse_args(
+                    ["--device-id", "sim-default", "--interval", str(interval)]
+                )
+                self.assertEqual(args.interval, interval)
+
+        for interval in ("0", "61", "2.5"):
+            with self.subTest(interval=interval), self.assertRaises(SystemExit):
+                parse_args(
+                    ["--device-id", "sim-default", "--interval", interval]
+                )
 
     def test_cli_accepts_portable_sensor_profile(self) -> None:
         args = parse_args(
@@ -151,7 +165,7 @@ class ProfileTests(unittest.TestCase):
         )
 
     def test_portable_rejects_unadvertised_commands(self) -> None:
-        state = SimulatorCommandState(reporting_interval=5.0)
+        state = SimulatorCommandState(reporting_interval=5)
 
         for command_type, arguments in (
             ("set_led", {"on": True}),
@@ -170,11 +184,11 @@ class ProfileTests(unittest.TestCase):
                     )
 
         self.assertFalse(state.led_on)
-        self.assertEqual(state.reporting_interval, 5.0)
+        self.assertEqual(state.reporting_interval, 5)
 
     def test_default_commands_keep_existing_behavior(self) -> None:
         state = SimulatorCommandState(
-            reporting_interval=5.0,
+            reporting_interval=5,
             last_metrics={"temperature_c": 24.5},
         )
 
@@ -188,11 +202,11 @@ class ProfileTests(unittest.TestCase):
             execute_command(
                 DEFAULT_PROFILE,
                 "set_reporting_interval",
-                {"interval_s": 2.5},
+                {"interval_s": 2},
                 state,
                 uptime_s=1,
             ),
-            {"interval_s": 2.5},
+            {"interval_s": 2},
         )
         self.assertEqual(
             execute_command(
@@ -204,15 +218,40 @@ class ProfileTests(unittest.TestCase):
             ),
             {
                 "led_on": True,
-                "reporting_interval_s": 2.5,
+                "reporting_interval_s": 2,
                 "uptime_s": 9,
                 "telemetry": {"temperature_c": 24.5},
             },
         )
 
+    def test_reporting_interval_command_rejects_invalid_values(self) -> None:
+        for interval in (1, 2, 60):
+            with self.subTest(interval=interval):
+                state = SimulatorCommandState(reporting_interval=5)
+                self.assertEqual(
+                    execute_command(
+                        DEFAULT_PROFILE,
+                        "set_reporting_interval",
+                        {"interval_s": interval},
+                        state,
+                        uptime_s=1,
+                    ),
+                    {"interval_s": interval},
+                )
+
+        for interval in (0, 61, 2.5, True):
+            with self.subTest(interval=interval), self.assertRaises(ValueError):
+                execute_command(
+                    DEFAULT_PROFILE,
+                    "set_reporting_interval",
+                    {"interval_s": interval},
+                    SimulatorCommandState(reporting_interval=5),
+                    uptime_s=1,
+                )
+
     def test_portable_diagnostics_succeeds(self) -> None:
         state = SimulatorCommandState(
-            reporting_interval=5.0,
+            reporting_interval=5,
             last_metrics={"light_lux": 215.0, "motion_detected": True},
         )
 

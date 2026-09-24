@@ -9,6 +9,7 @@ import { RefreshButton } from "@/components/refresh-button";
 import { LoadingState, StatePanel } from "@/components/state-panel";
 import { useDeviceOpsWebSocket } from "@/hooks/use-deviceops-websocket";
 import { apiGet } from "@/lib/api";
+import { deviceLabelForId, formatDeviceLabel } from "@/lib/devices";
 import { formatExactTime, formatRelativeTime } from "@/lib/format";
 import type {
   Device,
@@ -325,7 +326,7 @@ export default function EventsPage() {
             <option value="">All devices</option>
             {devices.map((device) => (
               <option key={device.device_id} value={device.device_id}>
-                {device.device_id}
+                {formatDeviceLabel(device)}
               </option>
             ))}
           </select>
@@ -420,7 +421,7 @@ export default function EventsPage() {
                         className="event-device mono"
                         href={`/devices/${encodeURIComponent(event.device_id)}`}
                       >
-                        {event.device_id}
+                        {deviceLabelForId(devices, event.device_id)}
                       </Link>
                       {commandId ? (
                         <span className="event-command mono" title={commandId}>

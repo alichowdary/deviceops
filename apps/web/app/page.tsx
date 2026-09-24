@@ -35,7 +35,7 @@ const productAreas = [
 export default function LandingPage() {
   const { initialized, user } = useAuth();
   const consoleHref = user ? "/fleet" : "/login";
-  const consoleLabel = initialized && user ? "Open console" : "Try DeviceOps";
+  const consoleLabel = initialized && user ? "Open console" : "View live demo";
 
   return (
     <div className="landing-shell">
@@ -58,9 +58,9 @@ export default function LandingPage() {
             <span className="state-eyebrow">Heterogeneous device operations</span>
             <h1>Operate IoT devices from one console.</h1>
             <p>
-              Connect your devices, view live sensor readings, see what is online,
-              send supported commands, track activity, and create alerts—all from
-              one focused operations console.
+              Explore the live DeviceOps deployment: view sensor readings, see what
+              is online, send supported commands, track activity, and create alerts
+              from one focused operations console.
             </p>
             <div className="landing-actions">
               <Link className="button button-primary" href={consoleHref}>
@@ -124,9 +124,13 @@ export default function LandingPage() {
 
         <section className="landing-final-cta">
           <div>
-            <span className="state-eyebrow">Start with a simulator or real hardware</span>
-            <h2>Bring your first device into view.</h2>
-            <p>Create an account, register a device, and follow the signed-in setup guide.</p>
+            <span className="state-eyebrow">Hosted demonstration and reproducible stack</span>
+            <h2>Explore DeviceOps, then run it with your devices.</h2>
+            <p>
+              deviceops.net demonstrates the deployed system. To connect your own
+              device, use the repository&apos;s local stack or deploy DeviceOps with an
+              MQTT broker you control.
+            </p>
           </div>
           <Link className="button button-primary" href={consoleHref}>
             {consoleLabel}<ArrowRight aria-hidden="true" size={14} />

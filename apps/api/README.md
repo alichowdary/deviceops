@@ -192,9 +192,11 @@ Telemetry protocol v1 requires its metadata and at least one metric value, but
 does not require a universal sensor field. The optimized `temperature_c`,
 `battery_pct`, `humidity_pct`, `pressure_hpa`, `rssi_dbm`, and `uptime_s` fields
 are all optional. Omitted optimized values persist as SQL `NULL` and serialize
-as JSON `null`; additional metrics persist in `additional_metrics`. Advertising
-one metric in a capability manifest does not require a device to publish it in
-every sample or require any unrelated optimized field.
+as JSON `null`; safe-name, non-null scalar additional metrics persist in
+`additional_metrics`. Arrays, nested objects, non-finite numbers, and unsafe
+additional names are rejected. Advertising one metric in a capability manifest
+does not require a device to publish it in every sample or require any unrelated
+optimized field.
 
 Offline rules use persisted `offline_since` state and open only after a previously
 connected device remains explicitly offline for the configured duration. Unknown
@@ -481,7 +483,7 @@ These production broker credentials are operator-managed secrets and are not
 included in the public repository:
 
 ```powershell
-$env:DEVICEOPS_MQTT_HOST = "4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud"
+$env:DEVICEOPS_MQTT_HOST = "<your-mqtt-broker-host>"
 $env:DEVICEOPS_MQTT_PORT = "8883"
 $env:DEVICEOPS_MQTT_TLS = "true"
 $env:DEVICEOPS_MQTT_USERNAME = Read-Host "HiveMQ username"

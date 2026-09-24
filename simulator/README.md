@@ -48,7 +48,7 @@ Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 `localhost` broker host, and broker TCP port `1883` are used unless overridden:
 
 ```powershell
-python -m device_simulator --device-id <registered-device-id> --interval 2.5 --broker-host localhost --broker-port 1883
+python -m device_simulator --device-id <registered-device-id> --interval 2 --broker-host localhost --broker-port 1883
 ```
 
 The local Docker/Mosquitto stack is the reproducible public development path and
@@ -62,7 +62,7 @@ $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
 $env:DEVICEOPS_MQTT_USERNAME = Read-Host "HiveMQ username"
 $env:DEVICEOPS_MQTT_PASSWORD = Read-Host "HiveMQ password"
 python -m device_simulator --device-id <registered-device-id> `
-  --broker-host 4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud `
+  --broker-host <your-mqtt-broker-host> `
   --broker-port 8883 --tls
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 Remove-Item Env:DEVICEOPS_MQTT_USERNAME

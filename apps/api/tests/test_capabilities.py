@@ -11,6 +11,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from deviceops_api.database import engine
@@ -18,6 +19,7 @@ from deviceops_api.models import Device, User
 from deviceops_api.mqtt import MqttIngestor
 from deviceops_api.mqtt_auth import create_authenticated_envelope
 from deviceops_api.routes.devices import get_device_capabilities
+from deviceops_api.schemas import CommandCreate
 
 
 class CapabilityTests(unittest.TestCase):
@@ -238,6 +240,23 @@ class CapabilityTests(unittest.TestCase):
         )
         invalid_manifests.append(bad_bounds)
 
+        fractional_interval = self.manifest(
+            commands={
+                "set_reporting_interval": {
+                    "label": "Reporting interval",
+                    "arguments": {
+                        "interval_s": {
+                            "type": "number",
+                            "label": "Interval",
+                            "min": 1,
+                            "max": 60,
+                        }
+                    },
+                }
+            }
+        )
+        invalid_manifests.append(fractional_interval)
+
         boolean_bounds = self.manifest()
         boolean_bounds["commands"]["set_led"]["arguments"]["on"]["min"] = 0
         invalid_manifests.append(boolean_bounds)
@@ -279,6 +298,22 @@ class CapabilityTests(unittest.TestCase):
         self.process(self.signed_message(supported_subset))
         self.assertIn("custom_voltage", self.device.capabilities["telemetry"])
         self.assertEqual(self.device.capabilities["commands"], {})
+
+    def test_reporting_interval_requires_whole_seconds_from_one_to_sixty(self) -> None:
+        for interval in (1, 2, 60):
+            with self.subTest(interval=interval):
+                command = CommandCreate(
+                    type="set_reporting_interval",
+                    arguments={"interval_s": interval},
+                )
+                self.assertEqual(command.arguments["interval_s"], interval)
+
+        for interval in (0, 61, 2.5, True):
+            with self.subTest(interval=interval), self.assertRaises(ValidationError):
+                CommandCreate(
+                    type="set_reporting_interval",
+                    arguments={"interval_s": interval},
+                )
 
     def test_oversized_manifest_is_rejected(self) -> None:
         telemetry = {

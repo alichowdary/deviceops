@@ -20,7 +20,7 @@ export default function GettingStartedPage() {
       <header className="page-header">
         <div>
           <h1 className="page-title">Getting Started</h1>
-          <p className="page-description">Connect your first DeviceOps device</p>
+          <p className="page-description">Reproduce DeviceOps with your own device</p>
         </div>
         <Link className="button button-primary" href="/fleet">Open Fleet</Link>
       </header>
@@ -34,6 +34,11 @@ export default function GettingStartedPage() {
             <li><span>2</span>Choose and configure a connection path</li>
             <li><span>3</span>Confirm the device in Fleet</li>
           </ol>
+          <p>
+            deviceops.net is the hosted demonstration. Follow these steps in a local
+            clone, or in your own deployment with an MQTT broker you control; the
+            demonstration&apos;s production broker credentials are not distributed.
+          </p>
         </section>
 
         <section className="panel setup-section">
@@ -69,7 +74,7 @@ export default function GettingStartedPage() {
               <ul className="setup-checklist">
                 <li>Install Python and create the simulator environment</li>
                 <li>Add the registered device ID and one-time secret</li>
-                <li>Connect to the production MQTT service and start the simulator</li>
+                <li>Connect to the included local broker or a broker you control</li>
               </ul>
               <a className="setup-guide-link" href={simulatorGuide} rel="noreferrer" target="_blank">
                 Open Python simulator instructions<ArrowUpRight aria-hidden="true" size={13} />

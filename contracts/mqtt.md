@@ -135,12 +135,13 @@ responses.
 
 Metrics stay under the `metrics` object so compatible sensors can be added
 without mixing measurements with message metadata. Arbitrary additional metrics
-with safe names are stored in `additional_metrics`. The additive capability
-manifest below supplies version 1 display definitions for compatible scalar
-values; it does not change the telemetry payload or topic. Supported capability
-value types are `number`, `integer`, `boolean`, and `string`. Arrays, binary
-blobs, images, audio, video, and arbitrary structured visualizations are not
-capability types.
+with safe names and non-null JSON scalar values are stored in
+`additional_metrics`; numeric values must be finite. Arrays and nested objects
+are rejected. The additive capability manifest below supplies version 1 display
+definitions for compatible scalar values; it does not change the telemetry
+payload or topic. Supported capability value types are `number`, `integer`,
+`boolean`, and `string`. Binary blobs, images, audio, video, and arbitrary
+structured visualizations are not capability types.
 
 Telemetry uses QoS 0 and is not retained. It is frequent, and a later reading
 supersedes a missed individual reading, so broker acknowledgement and retry are
@@ -199,13 +200,14 @@ per command.
 
 Version 1 command capabilities may be any subset of `set_led`,
 `set_reporting_interval`, and `request_diagnostics`, using their existing
-protocol-v1 argument shapes. This declaration does not enable arbitrary command
-execution. Telemetry may declare the first-class metrics above or additional
-safe names stored by ingestion in `additional_metrics`. The console uses these
+protocol-v1 argument shapes. A reporting-interval descriptor uses type `integer`
+with `min: 1` and `max: 60`. This declaration does not enable arbitrary command
+execution. Telemetry may declare the first-class metrics above or additional safe
+names stored by ingestion in `additional_metrics`. The console uses these
 telemetry descriptors as its display source: numeric values receive value cards
 and charts, while boolean and string values receive displayed values without
-numeric charts. A manifest does not make any advertised metric mandatory in
-each telemetry message.
+numeric charts. A manifest does not make any advertised metric mandatory in each
+telemetry message.
 
 `device_id` remains the stable protocol identity. The optional human-friendly
 display name is separate application metadata and never replaces it.
@@ -249,7 +251,7 @@ acknowledgement. `issued_at` is server UTC time. Version 1 supports only:
 | Type | Arguments | Behavior |
 | --- | --- | --- |
 | `set_led` | `{ "on": true }` or `{ "on": false }` | Changes the device LED state. |
-| `set_reporting_interval` | `{ "interval_s": 2 }` | Changes telemetry cadence; range 1–60 seconds. |
+| `set_reporting_interval` | `{ "interval_s": 2 }` | Changes telemetry cadence; integer range 1–60 seconds, inclusive. |
 | `request_diagnostics` | `{}` | Returns concise current device state. |
 
 Commands are not retained because a device reconnecting later must not execute

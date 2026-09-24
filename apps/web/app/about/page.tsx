@@ -43,7 +43,7 @@ const operationalAreas = [
 export default function AboutPage() {
   const { initialized, user } = useAuth();
   const consoleHref = user ? "/fleet" : "/login";
-  const consoleLabel = initialized && user ? "Open console" : "Try DeviceOps";
+  const consoleLabel = initialized && user ? "Open console" : "View live demo";
   const gettingStartedHref = user ? "/getting-started" : "/login";
 
   return (
@@ -221,8 +221,11 @@ export default function AboutPage() {
         <section className="landing-final-cta">
           <div>
             <span className="state-eyebrow">DeviceOps console</span>
-            <h2>Connect your first device.</h2>
-            <p>Register a device, save its credentials once, and choose a guided implementation.</p>
+            <h2>Explore the hosted system or run your own.</h2>
+            <p>
+              deviceops.net is the live demonstration. Connect your own device with
+              the repository&apos;s local stack or a deployment and MQTT broker you control.
+            </p>
           </div>
           <div className="landing-actions about-final-actions">
             <Link className="button button-primary" href={consoleHref}>{consoleLabel}</Link>

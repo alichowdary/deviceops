@@ -44,7 +44,7 @@ credentials:
 
 ```cpp
 constexpr char MQTT_BROKER[] =
-    "4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud";
+    "YOUR_MQTT_BROKER_HOST";
 constexpr uint16_t MQTT_PORT = 8883;
 constexpr bool MQTT_TLS_ENABLED = true;
 constexpr char MQTT_USERNAME[] = "YOUR_HIVEMQ_USERNAME";
@@ -101,3 +101,14 @@ Protocol version 1 does not provide general anti-replay protection: captured
 authenticated messages can be replayed, including an older signed `online`
 message. Session matching still protects the normal delayed stale-Last-Will case
 after a newer boot session has been established.
+
+## Adapting another sensor
+
+Your firmware remains responsible for reading its hardware. For example, a
+PM2.5 implementation might call `float pm25 = readSensor();`, advertise a
+`pm25_ugm3` telemetry capability with type `number`, label `PM2.5`, and unit
+`µg/m³`, then publish each reading under that same `pm25_ugm3` key. DeviceOps
+will provide the applicable scalar value, recent-sample column, numeric chart,
+and threshold-alert choice from the manifest; no PM2.5-specific frontend branch
+is needed. The device developer still owns the sensor driver, wiring, sampling,
+and conversion code.

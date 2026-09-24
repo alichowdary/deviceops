@@ -10,7 +10,7 @@ from .profiles import SimulatorProfile
 
 @dataclass
 class SimulatorCommandState:
-    reporting_interval: float
+    reporting_interval: int
     led_on: bool = False
     last_metrics: dict[str, Any] | None = None
 
@@ -36,15 +36,14 @@ def execute_command(
         requested_interval = arguments.get("interval_s")
         if (
             set(arguments) != {"interval_s"}
-            or isinstance(requested_interval, bool)
-            or not isinstance(requested_interval, (int, float))
+            or type(requested_interval) is not int
             or not 1 <= requested_interval <= 60
         ):
             raise ValueError(
                 "set_reporting_interval requires exactly "
-                "{'interval_s': number from 1 to 60}"
+                "{'interval_s': integer from 1 to 60}"
             )
-        state.reporting_interval = float(requested_interval)
+        state.reporting_interval = requested_interval
         return {"interval_s": state.reporting_interval}
 
     if arguments:

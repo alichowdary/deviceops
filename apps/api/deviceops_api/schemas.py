@@ -145,7 +145,25 @@ class TelemetryMetrics(BaseModel):
     uptime_s: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
-    def require_at_least_one_metric(self) -> "TelemetryMetrics":
+    def validate_metrics(self) -> "TelemetryMetrics":
+        for name, value in (self.model_extra or {}).items():
+            if re.fullmatch(CAPABILITY_IDENTIFIER_PATTERN, name) is None:
+                raise ValueError(f"invalid additional metric identifier: {name}")
+            if value is None or not isinstance(value, (int, float, bool, str)):
+                raise ValueError(
+                    f"additional metric {name} must be a non-null JSON scalar"
+                )
+            if (
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+            ):
+                try:
+                    finite = math.isfinite(value)
+                except OverflowError:
+                    finite = False
+                if not finite:
+                    raise ValueError(f"additional metric {name} must be finite")
+
         first_class_values = (
             self.temperature_c,
             self.battery_pct,
@@ -302,7 +320,7 @@ class CapabilityManifest(BaseModel):
         ] = {
             "set_led": {"on": {"boolean"}},
             "set_reporting_interval": {
-                "interval_s": {"number", "integer"}
+                "interval_s": {"integer"}
             },
             "request_diagnostics": {},
         }
@@ -315,6 +333,13 @@ class CapabilityManifest(BaseModel):
                 raise ValueError(
                     f"{command_name} arguments do not match protocol version 1"
                 )
+            if command_name == "set_reporting_interval":
+                interval = descriptor.arguments["interval_s"]
+                if interval.min != 1 or interval.max != 60:
+                    raise ValueError(
+                        "set_reporting_interval interval_s must be an integer "
+                        "from 1 to 60"
+                    )
         return self
 
 
@@ -557,13 +582,12 @@ class CommandCreate(BaseModel):
             interval = self.arguments.get("interval_s")
             if (
                 set(self.arguments) != {"interval_s"}
-                or isinstance(interval, bool)
-                or not isinstance(interval, (int, float))
+                or type(interval) is not int
                 or not 1 <= interval <= 60
             ):
                 raise ValueError(
                     "set_reporting_interval arguments must be exactly "
-                    "{'interval_s': number from 1 to 60}"
+                    "{'interval_s': integer from 1 to 60}"
                 )
         elif self.arguments:
             raise ValueError("request_diagnostics arguments must be empty")

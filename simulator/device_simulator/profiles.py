@@ -71,7 +71,7 @@ DEFAULT_PROFILE = SimulatorProfile(
             "label": "Reporting interval",
             "arguments": {
                 "interval_s": {
-                    "type": "number",
+                    "type": "integer",
                     "label": "Interval",
                     "unit": "s",
                     "min": 1,

@@ -61,6 +61,21 @@ class TelemetryValidationTests(unittest.TestCase):
             with self.subTest(metrics=metrics), self.assertRaises(ValidationError):
                 TelemetryPayload.model_validate(self.payload(metrics))
 
+    def test_additional_metrics_reject_unsafe_names_and_non_scalar_values(self) -> None:
+        invalid_metrics = (
+            {"unsafe metric": 1},
+            {"_private": 1},
+            {"nested": {"value": 1}},
+            {"samples": [1, 2]},
+            {"custom_metric": None, "temperature_c": 20},
+            {"not_a_number": float("nan")},
+            {"infinity": float("inf")},
+            {"too_large": 10**1000},
+        )
+        for metrics in invalid_metrics:
+            with self.subTest(metrics=metrics), self.assertRaises(ValidationError):
+                TelemetryPayload.model_validate(self.payload(metrics))
+
     def test_legacy_payload_and_supplied_field_validation_remain(self) -> None:
         payload = TelemetryPayload.model_validate(
             self.payload(
