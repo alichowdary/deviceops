@@ -988,6 +988,29 @@ a:focus-visible,
   line-height: 1.75;
 }
 
+.about-product-evidence {
+  width: min(calc(100% - 40px), 1180px);
+  margin: 0 auto;
+  padding-bottom: 48px;
+}
+
+.about-product-evidence-copy {
+  margin-bottom: 18px;
+}
+
+.about-product-evidence-frame {
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.about-product-evidence-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .about-split {
   display: grid;
   grid-template-columns: minmax(240px, 0.7fr) minmax(0, 1.3fr);
@@ -2545,6 +2568,11 @@ a:focus-visible,
 
   .about-page .about-hero {
     padding-block: 48px 42px;
+  }
+
+  .about-product-evidence {
+    width: min(calc(100% - 28px), 1180px);
+    padding-bottom: 42px;
   }
 
   .about-split,

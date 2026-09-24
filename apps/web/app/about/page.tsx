@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   TerminalSquare,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 
 import { useAuth } from "@/components/auth-provider";
@@ -79,7 +80,33 @@ export default function AboutPage() {
               </Link>
             </div>
           </section>
-          {/* A full-width product screenshot can be inserted here after telemetry generalization. */}
+          <figure
+            aria-labelledby="capability-console-title"
+            className="about-product-evidence"
+          >
+            <figcaption className="landing-section-heading about-product-evidence-copy">
+              <span className="state-eyebrow">Capability-driven console</span>
+              <h2 id="capability-console-title">
+                One device manifest, a UI built from its capabilities.
+              </h2>
+              <p>
+                This production Air Sensor advertises its own telemetry and supported
+                commands. DeviceOps renders the relevant values, numeric charts, and
+                controls from that manifest without a device-specific frontend. The
+                live view also records the device&apos;s successful diagnostics
+                acknowledgement.
+              </p>
+            </figcaption>
+            <div className="about-product-evidence-frame">
+              <Image
+                alt="Production DeviceOps Air Sensor view showing live online status, CO₂, VOC index, Occupied and Air quality values, two numeric charts, and a succeeded diagnostics command."
+                height={840}
+                sizes="(max-width: 780px) calc(100vw - 28px), 1180px"
+                src="/images/air-sensor-capabilities.png"
+                width={1918}
+              />
+            </div>
+          </figure>
         </div>
 
         <section aria-labelledby="architecture-title" className="landing-section">
