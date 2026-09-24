@@ -1,220 +1,175 @@
 # DeviceOps
 
-DeviceOps is an incremental IoT fleet management and observability project.
-Milestones 1A through 7 provide a local MQTT broker, a versioned device protocol,
-a Python device simulator, a FastAPI ingestion service backed by PostgreSQL, a
-Next.js fleet console with live updates and device-specific remote commands, and
-a verified ESP32-S3 reference firmware project. Milestone 7 adds user
-authentication, per-user device ownership, one-time device registration
-credentials, authenticated device messages, and owner-isolated live updates.
-Milestone 8 adds a persistent fleet activity feed, owner-scoped alert rules, and
-durable active/resolved alert lifecycles evaluated from committed telemetry and
-device status. Milestone 9 Phase 1 adds signed, retained device capability
-manifests, latest-manifest persistence, an owner-scoped REST read, and realtime
-update compatibility. Phase 2 makes Device Detail render its metric cards,
-numeric charts, recent-sample columns, and existing protocol-v1 controls from
-that manifest, including live capability changes. Phase 3 adds distinct default
-and portable-sensor simulator profiles so different manifests drive different
-Device Detail layouts without profile-specific frontend code. Milestone 10 Phase
-1 adds optional friendly device names, owner-controlled permanent device
-deletion, capability-aware alert metric selection, and wrapped metric-grid
-correctness while preserving stable device IDs. Metric-threshold alerts accept
-any finite numeric or integer telemetry value advertised by the current device
-manifest, including additional metrics.
+DeviceOps is an IoT fleet management and observability platform that connects
+compatible devices through a versioned MQTT protocol, persists and evaluates
+their data in FastAPI and PostgreSQL, and exposes a realtime Next.js operations
+console.
 
-The implemented flow is:
+Devices publish signed capability manifests describing their scalar telemetry
+and supported controls. The console uses those manifests to render the relevant
+values, charts, table columns, alert choices, and protocol-v1 controls without
+being hard-coded to a particular sensor.
 
-```text
-Device (simulator or ESP32) -> MQTT -> Mosquitto -> FastAPI -> PostgreSQL
-                                                    |
-                                                    +-> REST snapshots/history -> Next.js
-                                                    +-> WebSocket event deltas --^
+- [Live site](https://deviceops.net)
+- [About DeviceOps](https://deviceops.net/about)
+- [Try or reproduce DeviceOps](#try--reproduce-deviceops)
+- [MQTT protocol v1](contracts/mqtt.md)
 
-Next.js -> REST command -> FastAPI -> MQTT -> Mosquitto -> Device
-Next.js <- WebSocket update <- FastAPI <- MQTT acknowledgement <-+
-```
+![Production DeviceOps Air Sensor view with live capability-driven telemetry, numeric charts, controls, and a successful command acknowledgement.](apps/web/public/images/air-sensor-capabilities.png)
 
-FastAPI owns MQTT ingestion and publication and exposes REST and WebSocket
-endpoints. The browser connects only to FastAPI and never connects to MQTT.
-Backend setup is in
-[`apps/api/README.md`](apps/api/README.md); frontend setup is in
-[`apps/web/README.md`](apps/web/README.md).
+_The production Air Sensor publishes only capability-defined CO₂, VOC index,
+occupancy, and air-quality telemetry._
 
-## Web console
+## System design
 
-The frontend provides a public engineering-product overview at `/`, dedicated
-authentication at `/login`, and an authenticated fleet inventory at `/fleet`.
-Signed-in device onboarding lives at `/getting-started`, while device detail
-pages remain at `/devices/{deviceId}`. The console shows real API state, latest
-telemetry, server-time history charts, and recent samples. REST supplies the
-initial snapshot and history. New committed telemetry and device status events
-arrive through FastAPI's `/ws` endpoint and update the console in place. The
-device page renders only telemetry and existing command controls declared by the
-device manifest, and updates persisted command status from acknowledgements. The
-explicit Refresh control remains available. The `/events` page provides a persistent,
-owner-scoped activity feed for registration, connectivity transitions, and
-command lifecycle events without duplicating routine telemetry.
-The `/alerts` page shows active and recently resolved alerts alongside per-device
-metric threshold and offline-duration rule definitions. Alert state updates live,
-persists across refreshes, and is also recorded in the Events feed.
-
-PostgreSQL retains telemetry and device Events for a rolling three days. The
-Recent Samples table's newest-10 display is only a UI limit, not the retention
-period. Accounts, devices, commands, alert rules, and active or resolved alerts
-do not currently have an equivalent three-day purge.
-
-```powershell
-cd apps\web
-npm install
-npm run dev
-```
-
-## Device protocol and simulator
-
-The version 1 MQTT topic and payload contract is in
-[`contracts/mqtt.md`](contracts/mqtt.md). It defines telemetry, retained device
-presence, capability discovery, commands, acknowledgements, and their delivery
-semantics.
-
-Installation, run, and observation instructions for the Python simulator are in
-[`simulator/README.md`](simulator/README.md). Register a device through the API or
-web console first. With the broker running and the simulator environment
-installed, start that registered device with:
-
-```powershell
-cd simulator
-.\.venv\Scripts\Activate.ps1
-$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
-python -m device_simulator --device-id <registered-device-id> --interval 5
-Remove-Item Env:DEVICEOPS_DEVICE_SECRET
-```
-
-Owners may assign an optional display name for console readability. The
-generated device ID remains the immutable MQTT, database, API, relationship, and
-URL identity. Device Detail also provides explicit confirmed deletion, which
-permanently removes the registration and its device-owned history.
-
-## ESP32 reference firmware
-
-The [`firmware/esp32`](firmware/esp32) PlatformIO project contains the verified
-reference implementation for an ESP32-S3, a BME280 at address `0x76`, and the
-board's WS2812 RGB LED. It publishes real environmental telemetry and implements
-the same presence and command protocol as the simulator. See the
-[`firmware/esp32/README.md`](firmware/esp32/README.md) for wiring, local secrets,
-build, upload, and serial-monitor instructions. This firmware is one compatible
-device implementation, not a requirement for every DeviceOps device.
-
-## Local broker
-
-Prerequisite: Docker Desktop must be running with Linux containers and the
-`docker compose` command available. No global MQTT CLI tools are needed for the
-broker smoke test. Run all commands from the repository root.
-
-```powershell
-docker compose config
-docker compose up -d
-docker compose ps
-docker compose logs mosquitto
-```
-
-The first start downloads the official
-[Eclipse Mosquitto image](https://hub.docker.com/_/eclipse-mosquitto), pinned to
-`2.1.2-alpine` so the chosen version is explicit. Logs should show the configuration
-loading, a listening socket on port `1883`, and Mosquitto running.
-
-The broker is available to this computer at `127.0.0.1:1883`. Compose publishes
-port `1883` on all host interfaces so a physical device on the local network can
-reach it. It mounts
-`infra/mosquitto/mosquitto.conf` read-only. Compose creates its default network;
-we define no custom networks or data volumes, and broker persistence is disabled.
-The official image itself creates anonymous volumes at `/mosquitto/data` and
-`/mosquitto/log`; this configuration does not write broker state or log files there.
-
-**Local development only:** anonymous broker access is intentionally insecure.
-Clients that can reach the broker can publish and subscribe without credentials,
-and traffic is unencrypted. The broker may be reachable from the LAN when the
-host firewall permits it. DeviceOps authenticates version 1 device envelopes at
-the application layer; broker authentication and TLS remain future work. Do not
-use this configuration in production. There is no MQTT WebSocket listener.
-
-## Manual MQTT smoke test
-
-Open two PowerShell terminals in the repository root. Both clients run inside the
-broker container; `127.0.0.1` in these commands refers to that container.
-
-In **terminal 1**, start the subscriber:
-
-```powershell
-docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -p 1883 -t deviceops/v1/test -C 1 -W 60 -v -d
-```
-
-Wait until it prints `received SUBACK`, confirming the subscription is active.
-Within 60 seconds, run the publisher in **terminal 2**:
-
-```powershell
-docker compose exec mosquitto mosquitto_pub -h 127.0.0.1 -p 1883 -t deviceops/v1/test -m hello-deviceops
-```
-
-Terminal 1 should print this line among the debug messages, then exit successfully:
+The browser never connects directly to MQTT. FastAPI authenticates device
+traffic, commits accepted state to PostgreSQL, and only then publishes
+owner-scoped updates to the web console.
 
 ```text
-deviceops/v1/test hello-deviceops
+Device / simulator -> MQTT broker -> FastAPI -> PostgreSQL
+                                        |
+Browser <- REST snapshots and history --+
+        <- authenticated WebSocket deltas
 ```
 
-`-C 1` exits after one message, `-W 60` sets a 60-second message wait limit,
-`-v` prints the topic and payload, and `-d` shows the connection/subscription
-handshake. The message is not retained: subscribe before publishing. If the
-subscriber times out, start it again and publish after its SUBACK.
+Commands follow a deliberately closed loop:
 
-To separately check that Windows can reach the published TCP port:
-
-```powershell
-Test-NetConnection -ComputerName 127.0.0.1 -Port 1883
+```text
+Next.js -> REST -> FastAPI -> MQTT -> Device
+Browser <- WebSocket <- FastAPI <- MQTT acknowledgement
 ```
 
-Expect `TcpTestSucceeded : True`. This checks host port reachability; the
-publish/subscribe test above verifies actual MQTT message delivery.
+A command remains `pending` until the device returns a valid acknowledgement;
+only that committed acknowledgement can mark it `succeeded` or `failed`.
 
-## Stop and troubleshooting
+### Production deployment
 
-Stop the local infrastructure while preserving PostgreSQL data:
+| Responsibility | Deployment |
+| --- | --- |
+| Next.js frontend and custom domain | Vercel at [deviceops.net](https://deviceops.net) |
+| FastAPI backend | Fly.io |
+| PostgreSQL | Supabase |
+| MQTT broker | HiveMQ Cloud with broker authentication and verified TLS |
 
-```powershell
-docker compose down
-```
+Local development uses Docker Compose, PostgreSQL, and Eclipse Mosquitto. The
+repository's anonymous plaintext Mosquitto listener is intentionally local-only
+infrastructure and is not the production broker.
 
-Start again with `docker compose up -d`. Mosquitto state is not saved across restarts;
-PostgreSQL data persists in its named volume. `docker compose down --volumes`
-deliberately deletes the development database as well as container volumes.
-After editing `mosquitto.conf`, run `docker compose restart mosquitto` to reload it.
+## Implemented features
 
-- If Docker reports that it cannot connect to the daemon, start Docker Desktop,
-  wait until its engine is running, and retry.
-- If port `1883` is already allocated, stop the conflicting local service before
-  starting this broker.
-- If the container exits, inspect `docker compose logs mosquitto` and check the
-  mounted configuration file. A valid Compose file alone does not prove that
-  Mosquitto started successfully.
+- User registration and login with Argon2 password hashing and JWT access
+  tokens, plus per-user device ownership.
+- One-time device registration secrets and per-device HMAC-signed MQTT
+  envelopes with boot/process session isolation.
+- Production MQTT broker authentication and verified TLS, retained signed
+  online/offline presence, and retained signed capability manifests.
+- Capability-driven scalar telemetry, including generated metric cards,
+  numeric charts, recent-sample columns, and numeric alert choices.
+- A fixed protocol-v1 command vocabulary, acknowledgement-controlled command
+  state, and persistent command history.
+- Authenticated WebSocket updates for telemetry, presence, capabilities,
+  commands, events, and alert lifecycles.
+- Persistent fleet Events plus metric-threshold and offline-duration alert
+  rules.
+- Three-day rolling telemetry and Event retention.
+- Optional friendly device names and owner-confirmed permanent deletion.
+- Python simulator profiles and a verified ESP32-S3 + BME280 reference
+  implementation.
 
-## What the test demonstrates
+## Capability-driven device model
 
-- **Publisher:** `mosquitto_pub` sends the payload `hello-deviceops`.
-- **Subscriber:** `mosquitto_sub` asks to receive messages on `deviceops/v1/test`.
-- **Broker:** Mosquitto accepts client connections and routes the publisher's
-  message to subscribers whose subscriptions match its topic.
-- **Topic:** `deviceops/v1/test` is the message's routing name. `deviceops/v1`
-  establishes our planned versioned namespace; it is not a file or HTTP URL.
-- **Port 1883:** the conventional TCP port for unencrypted MQTT, used by both
-  clients to connect to the broker.
+A compatible DeviceOps v1 implementation publishes a signed, retained
+capability manifest. Telemetry descriptors support four scalar value types:
 
-Milestone 6 supports battery-powered simulators and battery-free environmental
-sensors through the same ingestion and console paths, and includes the verified
-ESP32 reference firmware. Milestone 7 adds user authentication, ownership,
-device registration credentials, authenticated MQTT envelopes, and isolated
-realtime delivery. Milestone 8 adds persistent fleet Events, alert-rule
-management, and automatic active/resolved alert lifecycles through REST and
-owner-isolated WebSockets. Milestone 9 adds authenticated capability discovery
-and a capability-driven Device Detail while retaining a read-only legacy sample
-view for devices that have not advertised a manifest. External alert
-notification delivery, broker-level MQTT authentication and TLS, OTA updates,
-and cloud infrastructure remain future work.
+- `number`
+- `integer`
+- `boolean`
+- `string`
+
+The UI consumes each descriptor's label, unit, type, and manifest order
+generically. Numeric and integer metrics can receive charts and numeric
+threshold alert rules. Boolean and string metrics remain visible as values and
+table columns without being treated as numeric data.
+
+The `air-quality` simulator profile demonstrates the abstraction by publishing
+only `co2_ppm`, `voc_index`, `occupied`, and `air_quality`. It publishes none of
+the historical BME-style first-class metric names.
+
+Other capable devices can integrate by implementing the documented
+[DeviceOps MQTT v1 protocol](contracts/mqtt.md); compatibility is protocol-based
+rather than automatic. The Python simulator and
+ESP32-S3 + BME280 firmware are the verified implementations in this repository.
+
+## Run DeviceOps
+
+### Path A: Python simulator
+
+The simulator is the quickest software-only route and requires no hardware.
+Start the local stack, register a device through the local web console, save its
+one-time secret, and run the simulator with the generated device ID. Profiles
+include `default`, `portable-sensor`, and `air-quality`.
+
+See the [simulator guide](simulator/README.md) for installation, profile, local
+MQTT, and optional TLS configuration.
+
+### Path B: ESP32-S3 reference hardware
+
+The verified physical implementation uses an ESP32-S3, a BME280 environmental
+sensor, and the board's WS2812 LED. It demonstrates the same signed protocol,
+presence, capabilities, telemetry, commands, and acknowledgements as the
+simulator; it is one implementation, not a platform requirement.
+
+See the [firmware guide](firmware/esp32/README.md) for wiring, PlatformIO setup,
+build, upload, and local credential configuration.
+
+Production HiveMQ credentials are operator-managed secrets and are not supplied
+to public repository visitors. The Docker Compose/Mosquitto path is the public,
+reproducible development environment; the hosted site demonstrates the separate
+production architecture.
+
+## Local development
+
+The detailed guides remain authoritative, but the basic sequence is:
+
+1. Start PostgreSQL and local Mosquitto with `docker compose up -d`.
+2. Create the backend virtual environment and install `apps/api`.
+3. Run `python -m alembic upgrade head` from `apps/api`.
+4. Start FastAPI with `python -m uvicorn deviceops_api.main:app --host 127.0.0.1 --port 8000`.
+5. Install and start the web console with `npm install` and `npm run dev` from `apps/web`.
+6. Register or sign in at <http://localhost:3000>, then create a device.
+7. Run a simulator profile with the returned device ID and one-time secret.
+
+Complete setup and configuration:
+
+- [Backend and database](apps/api/README.md)
+- [Web console](apps/web/README.md)
+- [Python simulator](simulator/README.md)
+- [ESP32 reference firmware](firmware/esp32/README.md)
+- [MQTT protocol contract](contracts/mqtt.md)
+
+## Repository structure
+
+| Path | Purpose |
+| --- | --- |
+| `apps/api` | FastAPI REST/WebSocket service, MQTT ingestion, alerts, retention, and Alembic migrations |
+| `apps/web` | Next.js public site and authenticated operations console |
+| `contracts` | Versioned MQTT topic and payload contract |
+| `firmware/esp32` | Verified ESP32-S3 + BME280 PlatformIO implementation |
+| `simulator` | Python device simulator and selectable capability profiles |
+| `infra/mosquitto` | Local-development Mosquitto configuration |
+| `docker-compose.yml` | Local PostgreSQL and Mosquitto services |
+
+## Intentional boundaries
+
+- Protocol v1 supports scalar telemetry, not arbitrary binary, image, audio,
+  video, array, or structured visualization payloads.
+- Commands use a fixed protocol vocabulary rather than device-defined arbitrary
+  executable operations.
+- External email, SMS, push, and webhook alert delivery is not implemented.
+- OTA firmware updates are not implemented.
+- One API process currently owns MQTT ingestion, realtime delivery, offline-rule
+  evaluation, and retention cleanup. Horizontal multi-worker scaling would
+  require separating or coordinating those responsibilities.
+- HMAC and session validation protect message integrity and normal stale-session
+  ordering, but protocol v1 does not provide complete anti-replay protection.

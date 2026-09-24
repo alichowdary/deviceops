@@ -37,7 +37,9 @@ For local anonymous Mosquitto, use the computer's LAN IPv4 address, port `1883`,
 `MQTT_TLS_ENABLED = false`, and empty MQTT username/password strings.
 `127.0.0.1` would refer to the ESP32 itself.
 
-For HiveMQ Cloud, use this transport shape with your locally supplied broker
+Production HiveMQ credentials are operator-managed secrets and are not supplied
+by this public repository. An operator connecting this reference device to
+HiveMQ Cloud uses the following transport shape with locally supplied broker
 credentials:
 
 ```cpp

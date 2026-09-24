@@ -11,7 +11,7 @@ connect to MQTT.
 
 - Node.js 20.9 or newer
 - npm
-- The Milestone 2 infrastructure and FastAPI service running locally
+- The repository's local PostgreSQL, Mosquitto, and FastAPI services running
 
 ## Install and configure
 
@@ -43,10 +43,11 @@ NEXT_PUBLIC_DEVICEOPS_WS_URL=ws://127.0.0.1:8000/ws
 npm run dev
 ```
 
-Open <http://localhost:3000>. The root route is a public product and architecture
-overview. `/login` provides registration and sign-in, `/fleet` is the protected
-device inventory, and `/getting-started` contains practical signed-in simulator
-and ESP32 onboarding. The access token is kept in memory and in browser
+Open <http://localhost:3000>. The root route is the public product overview,
+`/about` describes the architecture and implementation, `/login` provides
+registration and sign-in, `/fleet` is the protected device inventory, and
+`/getting-started` contains practical signed-in simulator and ESP32 onboarding.
+The access token is kept in memory and in browser
 `sessionStorage` for the current tab; logout, an authenticated REST `401`, or a
 rejected WebSocket authentication clears it. Successful authentication opens
 `/fleet`, which loads that user's devices and API health. Select a device row to

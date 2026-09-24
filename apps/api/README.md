@@ -45,21 +45,18 @@ on shutdown. If MQTT is unavailable, the API remains available with a degraded
 health response while Paho retries. Database migrations remain an explicit step
 so schema changes are visible and reviewable.
 
-Run one Uvicorn worker in this milestone. Because the MQTT subscriber currently
-lives inside the API process, additional workers would also start subscribers.
-The ingestion responsibility can be separated later if independent scaling is
-needed. The WebSocket hub is also in process, so this single-worker constraint
-keeps ingestion and connected browsers on the same event stream. The one-second
-offline-alert evaluator also runs in this process; multi-worker coordination is
-intentionally outside this local milestone. The same lifespan starts one
-retention cleanup shortly after startup and repeats it hourly. This background
-cleanup also assumes the documented single-process deployment.
+Run one Uvicorn worker. The MQTT subscriber, WebSocket hub, offline-alert
+evaluator, and retention cleaner currently live in the API process; starting
+additional workers would duplicate background responsibilities and split
+connected browsers across in-process event hubs. Horizontal scaling therefore
+requires separating or coordinating those responsibilities. The same lifespan
+starts one retention cleanup shortly after startup and repeats it hourly.
 
 ## Run a device
 
-In another PowerShell terminal, use the simulator environment created in
-Milestone 1B. Register a device first, then supply its one-time plaintext secret
-without placing it in shell history:
+In another PowerShell terminal, use the environment from the
+[simulator setup guide](../../simulator/README.md). Register a device first,
+then supply its one-time plaintext secret without placing it in shell history:
 
 ```powershell
 cd simulator
@@ -263,8 +260,8 @@ The database stores that digest as hexadecimal in `device_secret_hash`, so the
 stored digest is credential-equivalent for MQTT authentication: anyone who can
 read it can derive the HMAC key and impersonate the device. Hash storage prevents
 recovering the original one-time secret, but it does not prevent impersonation
-after a database compromise. Secret encryption or asymmetric device identities
-are outside this checkpoint.
+after a database compromise. Secret encryption and asymmetric device identities
+are not implemented.
 
 Authenticated `online` establishes the current device session. Telemetry,
 capabilities, acknowledgements, and `offline` must use that session; this prevents a stale Last
@@ -479,7 +476,9 @@ deployment. Access tokens use HS256 and expire after 24 hours by default.
 
 The default MQTT settings keep local anonymous Mosquitto on
 `localhost:1883` unchanged. For the production HiveMQ Cloud broker, configure
-the host, port `8883`, broker username and password, and enable verified TLS:
+the host, port `8883`, broker username and password, and enable verified TLS.
+These production broker credentials are operator-managed secrets and are not
+included in the public repository:
 
 ```powershell
 $env:DEVICEOPS_MQTT_HOST = "4387cc3e2f3f45d3a76c7363cfa6315b.s1.eu.hivemq.cloud"
@@ -500,9 +499,8 @@ environment variables from the shell after stopping the API, as shown above.
 
 The backend uses one short synchronous SQLAlchemy session per HTTP request or
 MQTT message. A malformed message is logged and rejected without stopping the
-subscriber. The subscriber can be moved into a separate ingestion service later
-if load or independent scaling requires it; that split is intentionally absent
-from this milestone.
+subscriber. MQTT ingestion remains in the API process; separating it would be
+required for independent horizontal scaling.
 
 Stop FastAPI with Ctrl+C. Stop local infrastructure without deleting stored data:
 

@@ -1,7 +1,8 @@
 # Device simulator
 
 This small Python process behaves like one registered DeviceOps device. It
-connects to Mosquitto, publishes authenticated, gradually changing telemetry,
+connects to the configured MQTT broker, publishes authenticated, gradually
+changing telemetry,
 maintains an authenticated retained online/offline status, and publishes an
 authenticated retained capability manifest after each connection. Selectable
 profiles let it represent materially different devices while keeping the
@@ -50,9 +51,11 @@ Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 python -m device_simulator --device-id <registered-device-id> --interval 2.5 --broker-host localhost --broker-port 1883
 ```
 
-The local command remains anonymous and plaintext. To connect to the production
-HiveMQ Cloud broker, read broker credentials into environment variables and opt
-in to verified TLS explicitly:
+The local Docker/Mosquitto stack is the reproducible public development path and
+uses anonymous plaintext MQTT. Production HiveMQ credentials are
+operator-managed secrets and are not supplied by this repository. An operator
+connecting the simulator to that broker reads those credentials into environment
+variables and opts in to verified TLS explicitly:
 
 ```powershell
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
@@ -130,7 +133,7 @@ a fresh UTC `sent_at` after every successful command-topic subscription.
 Press Ctrl+C for a clean shutdown. The simulator publishes an authenticated,
 retained `offline` envelope before disconnecting. If the process or network
 connection disappears without a clean disconnect, its authenticated MQTT Last
-Will makes Mosquitto publish retained `offline`.
+Will makes the broker publish retained `offline`.
 
 If the broker is unavailable, the simulator exits with an error and reminds you
 how to start it.

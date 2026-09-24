@@ -207,8 +207,8 @@ and charts, while boolean and string values receive displayed values without
 numeric charts. A manifest does not make any advertised metric mandatory in
 each telemetry message.
 
-`device_id` remains the stable protocol identity. A future human-friendly
-display name would be separate metadata and must not replace it.
+`device_id` remains the stable protocol identity. The optional human-friendly
+display name is separate application metadata and never replaces it.
 
 ## Presence/status
 
@@ -220,12 +220,12 @@ Before connecting, a device configures a retained, QoS 1 authenticated envelope
 whose body is `offline` on its status topic. After connecting, it publishes a
 retained authenticated `online` envelope using the same session ID. On a clean
 shutdown, it explicitly publishes authenticated `offline` before disconnecting.
-If the connection disappears unexpectedly, Mosquitto publishes the signed Last
-Will.
+If the connection disappears unexpectedly, the MQTT broker publishes the
+signed Last Will.
 
-The retained status is useful connection evidence, but it is not a complete
-lifecycle policy. Application-level offline timeouts belong to a later backend
-milestone.
+The retained status is connection evidence, not a device-defined timeout policy.
+FastAPI records the start of an authenticated offline transition, and configured
+offline-duration alert rules evaluate that persisted state using server time.
 
 ## Commands
 
