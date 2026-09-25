@@ -40,11 +40,12 @@ const operationalAreas = [
   },
 ] as const;
 
+const technicalOverview = "https://github.com/alichowdary/deviceops#readme";
+
 export default function AboutPage() {
   const { initialized, user } = useAuth();
   const consoleHref = user ? "/fleet" : "/login";
   const consoleLabel = initialized && user ? "Open console" : "Create account";
-  const gettingStartedHref = user ? "/getting-started" : "/login";
 
   return (
     <div className="landing-shell about-page">
@@ -64,21 +65,40 @@ export default function AboutPage() {
       <main>
         <div className="about-introduction">
           <section className="about-hero landing-section">
-            <span className="state-eyebrow">About DeviceOps</span>
-            <h1>One console for devices that do different jobs.</h1>
-            <p>
-              DeviceOps is an IoT fleet management and observability platform. It
-              gives operators a consistent way to monitor and control heterogeneous
-              devices while allowing each device to expose its own metrics and controls.
-            </p>
-            <div className="landing-actions">
-              <Link className="button button-primary" href={consoleHref}>
-                {consoleLabel}<ArrowRight aria-hidden="true" size={14} />
-              </Link>
-              <Link className="button button-secondary" href={gettingStartedHref}>
-                Get started
-              </Link>
+            <div className="about-hero-copy">
+              <span className="state-eyebrow">About DeviceOps</span>
+              <h1>One console for devices that do different jobs.</h1>
+              <p>
+                DeviceOps is an IoT fleet management and observability platform. It
+                gives operators a consistent way to monitor and control heterogeneous
+                devices while allowing each device to expose its own metrics and controls.
+              </p>
+              <div className="landing-actions">
+                <Link className="button button-primary" href={consoleHref}>
+                  {consoleLabel}<ArrowRight aria-hidden="true" size={14} />
+                </Link>
+                <a
+                  className="button button-secondary"
+                  href={technicalOverview}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  View technical overview
+                </a>
+              </div>
             </div>
+            <aside aria-label="Hosted device flow" className="about-hosted-flow">
+              <span className="state-eyebrow">Hosted device flow</span>
+              <ol>
+                <li><span>1</span>Create an account</li>
+                <li><span>2</span>Register a device</li>
+                <li><span>3</span>Connect simulator or hardware</li>
+              </ol>
+              <div className="about-hosted-endpoint">
+                <code>mqtt.deviceops.net:443</code>
+                <span>Verified TLS · per-device credentials</span>
+              </div>
+            </aside>
           </section>
           <figure
             aria-labelledby="capability-console-title"
@@ -90,7 +110,7 @@ export default function AboutPage() {
                 One device manifest, a UI built from its capabilities.
               </h2>
               <p>
-                This production Air Sensor advertises its own telemetry and supported
+                This Air Sensor example advertises its own telemetry and supported
                 commands. DeviceOps renders the relevant values, numeric charts, and
                 controls from that manifest without a device-specific frontend. The
                 live view also records the device&apos;s successful diagnostics
@@ -99,7 +119,7 @@ export default function AboutPage() {
             </figcaption>
             <div className="about-product-evidence-frame">
               <Image
-                alt="Production DeviceOps Air Sensor view showing live online status, CO₂, VOC index, Occupied and Air quality values, two numeric charts, and a succeeded diagnostics command."
+                alt="DeviceOps Air Sensor example showing live online status, CO₂, VOC index, Occupied and Air quality values, two numeric charts, and a succeeded diagnostics command."
                 height={840}
                 sizes="(max-width: 780px) calc(100vw - 28px), 1180px"
                 src="/images/air-sensor-capabilities.png"
@@ -237,7 +257,14 @@ export default function AboutPage() {
           </div>
           <div className="landing-actions about-final-actions">
             <Link className="button button-primary" href={consoleHref}>{consoleLabel}</Link>
-            <Link className="button button-secondary" href={gettingStartedHref}>Get started</Link>
+            <a
+              className="button button-secondary"
+              href={technicalOverview}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              View technical overview
+            </a>
           </div>
         </section>
       </main>

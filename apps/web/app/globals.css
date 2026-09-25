@@ -935,6 +935,11 @@ a:focus-visible,
   background: var(--surface);
 }
 
+.landing-final-cta > .button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .landing-final-cta h2 {
   font-size: 20px;
 }
@@ -953,6 +958,10 @@ a:focus-visible,
 
 .about-hero {
   max-width: 1180px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.7fr);
+  align-items: start;
+  gap: 48px;
   padding-block: 60px 52px;
   border-top: 0;
 }
@@ -980,12 +989,67 @@ a:focus-visible,
   letter-spacing: -0.04em;
 }
 
-.about-hero > p {
+.about-hero-copy > p {
   max-width: 760px;
   margin: 0;
   color: var(--muted);
   font-size: 15px;
   line-height: 1.75;
+}
+
+.about-hosted-flow {
+  margin-top: 2px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+
+.about-hosted-flow > .state-eyebrow {
+  display: block;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.about-hosted-flow ol {
+  margin: 0;
+  padding: 6px 14px;
+  list-style: none;
+}
+
+.about-hosted-flow li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.about-hosted-flow li + li {
+  border-top: 1px solid var(--border);
+}
+
+.about-hosted-flow li > span {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.about-hosted-endpoint {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-strong);
+  background: #0e1317;
+}
+
+.about-hosted-endpoint code {
+  color: #dceeff;
+  font-size: 11px;
+}
+
+.about-hosted-endpoint span {
+  color: var(--faint);
+  font-size: 10px;
 }
 
 .about-product-evidence {
@@ -2559,6 +2623,8 @@ a:focus-visible,
   }
 
   .about-hero {
+    grid-template-columns: 1fr;
+    gap: 24px;
     padding-block: 48px 42px;
   }
 
