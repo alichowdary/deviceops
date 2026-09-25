@@ -24,7 +24,7 @@ From the repository root:
 
 ```powershell
 cd apps\web
-npm install
+npm ci
 ```
 
 The frontend defaults to `http://127.0.0.1:8000`. To use a different backend,
@@ -168,3 +168,7 @@ npm run lint
 npm run typecheck
 npm run build
 ```
+
+These checks require no production credentials. `npm run build` uses the
+committed local API defaults unless public endpoint variables are explicitly
+provided.

@@ -11,7 +11,9 @@ DeviceOps does not require this board or sensor and does not automatically
 discover hardware. Application firmware still initializes and reads its own
 sensors, converts units, declares capabilities, and performs command effects.
 
-## Hardware used by the reference application
+## A. Run the BME280 reference device
+
+### Hardware
 
 - ESP32-S3 development board compatible with `esp32-s3-devkitc-1`
 - BME280 at I2C address `0x76`
@@ -24,7 +26,19 @@ sensors, converts units, declares capabilities, and performs command effects.
 | SDA | GPIO 8 |
 | SCL | GPIO 9 |
 
-## Hosted DeviceOps setup
+### Prerequisites and project setup
+
+Install Git, [Visual Studio Code with the PlatformIO IDE
+extension](https://platformio.org/install/ide?install=vscode), or standalone
+[PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html).
+Clone the repository and open `firmware/esp32` as the PlatformIO project:
+
+```powershell
+git clone https://github.com/alichowdary/deviceops.git
+cd deviceops
+```
+
+### Hosted DeviceOps setup
 
 Register a device in the DeviceOps console and save its Device ID and one-time
 DeviceOps secret. Create the ignored local header:
@@ -51,7 +65,10 @@ Do not commit that file. Hosted mode automatically uses:
 There is no second MQTT credential. The firmware never prints the device
 secret, signing key, or derived broker password.
 
-## Build, upload, and monitor
+### Build, upload, and monitor
+
+The commands below use the executable from a standard Windows Core installation;
+`pio` is equivalent when it is on PATH.
 
 ```powershell
 cd firmware\esp32
@@ -63,7 +80,51 @@ C:\Users\HP\.platformio\penv\Scripts\pio.exe device monitor --baud 115200
 Do not upload firmware that still has placeholders. The upload and monitor port
 can be passed explicitly if PlatformIO finds more than one serial device.
 
-## Ownership boundary
+### Expected behavior and verification
+
+On boot, the reference application runs deterministic authentication test
+vectors, joins Wi-Fi, obtains valid UTC time, and connects to
+`mqtt.deviceops.net:443` with verified TLS. The serial monitor should include
+`MQTT auth self-test: PASS`, `Wi-Fi connected.`, `UTC clock synchronized.`,
+`MQTT connected.`, and telemetry summaries without printing credentials. In
+DeviceOps, the device should become Online, advertise its BME280/RSSI/uptime
+capabilities, and begin publishing samples.
+
+The LED, reporting-interval, and diagnostics controls appear because the
+reference application registers them. A command remains pending in the console
+until this firmware validates it, applies the effect, and publishes an ACK.
+
+Test the LED, reporting-interval, and diagnostics controls from Device Detail
+and confirm each leaves `pending` only after a succeeded or failed ACK. To test
+the MQTT Last Will, interrupt power or network connectivity while the device is
+Online instead of performing a clean shutdown. After the broker detects the
+lost connection, DeviceOps should commit the retained offline status. Reconnect
+or reboot the board to start a new live session.
+
+### Troubleshooting
+
+- **Build cannot find `secrets.h`:** copy `include/secrets.example.h` to
+  `include/secrets.h`; keep the copy untracked.
+- **Upload port is ambiguous or unavailable:** disconnect other serial boards or
+  pass `--upload-port <port>` to the upload command.
+- **Wi-Fi never connects:** verify the SSID/password and that the board can use
+  that network. The reference application owns Wi-Fi policy.
+- **TLS/MQTT connection fails:** verify the board has internet access, the device
+  ID and one-time secret belong to the same current registration, and UTC sync
+  succeeds. Hosted TLS cannot be disabled.
+- **BME280 is not detected:** recheck 3.3 V, ground, GPIO 8/9, and address
+  `0x76`.
+- **Local broker is unreachable:** use the development computer's LAN address,
+  not `localhost`, and allow inbound TCP 1883 on the trusted local network.
+
+## B. Use DeviceOpsClient in your own ESP32 project
+
+The reusable client is documented in
+[`lib/DeviceOpsClient/README.md`](lib/DeviceOpsClient/README.md). The sections
+below summarize the integration boundary and show how the reference application
+uses the same public API available to another ESP32 Arduino project.
+
+### Ownership boundary
 
 The reference application owns:
 
@@ -91,7 +152,7 @@ timestamps are required DeviceOps protocol plumbing. Connect Wi-Fi before
 calling `device.begin()`, call `device.loop()` frequently, and call
 `device.syncClock()` after the application restores a lost Wi-Fi connection.
 
-## Reusing the client with another sensor
+### Integration example
 
 The public API registers scalar capabilities before `begin()` and publishes all
 metrics for one sample in a single JSON object:
@@ -166,7 +227,7 @@ interval command is handled and persisted by the client; the application uses
 See [`lib/DeviceOpsClient/README.md`](lib/DeviceOpsClient/README.md) for the
 compact client API and lifecycle reference.
 
-## Explicit local MQTT development
+### Explicit local MQTT development
 
 Hosted mode is the default. To use the repository's anonymous plaintext local
 broker, uncomment the explicit switch and set a reachable LAN address in the
@@ -182,7 +243,7 @@ The reference application then constructs
 without TLS or broker credentials. Signed DeviceOps envelopes are still used.
 This explicit mode cannot weaken hosted TLS configuration.
 
-## Preserved reference behavior
+## Reference behavior and protocol checks
 
 The refactored application continues to provide BME280 temperature, humidity,
 and pressure; RSSI and uptime; online/offline presence; capability publication;

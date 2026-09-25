@@ -62,9 +62,13 @@ then supply its one-time plaintext secret without placing it in shell history:
 cd simulator
 .\.venv\Scripts\Activate.ps1
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
-python -m device_simulator --device-id <registered-device-id> --interval 5
+python -m device_simulator --device-id <registered-device-id> --local --interval 5
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
+
+`--local` is required here because this API instance is consuming the local
+Mosquitto listener. Omit it only when both the simulator and API are deliberately
+configured for the hosted broker.
 
 ## Query the API
 
@@ -545,6 +549,21 @@ Stop FastAPI with Ctrl+C. Stop local infrastructure without deleting stored data
 ```powershell
 docker compose down
 ```
+
+## Tests
+
+The test suite uses Python's standard-library test runner. Its persistence tests
+use the configured PostgreSQL database, so start the local database and apply
+migrations first. With the API virtual environment active:
+
+```powershell
+docker compose -f ..\..\docker-compose.yml up -d postgres
+python -m alembic upgrade head
+python -m unittest discover -s tests -v
+```
+
+Use only a disposable local database. The suite does not require production
+credentials and must never be pointed at production.
 
 To deliberately reset the development database, remove its volume:
 

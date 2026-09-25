@@ -12,11 +12,13 @@ version 1 commands documented in
 
 ## Install
 
-From the repository root in PowerShell, create an isolated virtual environment
-and install the simulator with its pinned Paho MQTT dependency:
+Install Git and Python 3.11 or newer. Clone the repository, then create an
+isolated virtual environment and install the simulator with its pinned Paho MQTT
+dependency:
 
 ```powershell
-cd simulator
+git clone https://github.com/alichowdary/deviceops.git
+cd deviceops\simulator
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -27,13 +29,13 @@ Paho MQTT 2.1.0 declares Python 3.7 or newer and provides a universal Python 3
 wheel. This simulator is configured for Python 3.11 or newer and has been tested
 in this repository with Python 3.14.5.
 
-## Run
+## Hosted quick start
 
-Run the simulator from this directory with the virtual environment activated.
-Register a device at DeviceOps first. Supply its one-time plaintext secret
-through the `DEVICEOPS_DEVICE_SECRET` environment variable; the simulator never
-prints it. Using `Read-Host` avoids putting the secret in PowerShell command
-history:
+1. Create an account at [deviceops.net](https://deviceops.net).
+2. Open Fleet, select **Add device**, and copy the generated device ID and
+   one-time DeviceOps secret before closing the dialog.
+3. Complete the [installation](#install), then run the following commands from
+   the repository root. `Read-Host` keeps the secret out of PowerShell history:
 
 ```powershell
 cd simulator
@@ -51,6 +53,14 @@ password is requested, stored, or printed.
 `--device-id` is required. The `default` profile and five-second telemetry
 interval are used unless overridden.
 
+4. Keep the process running and open the new device in Fleet. Its status should
+   become Online and telemetry should begin updating. Press Ctrl+C to publish a
+   clean offline status, then remove the secret from the shell as shown above.
+
+## Local and custom brokers
+
+### Local mode
+
 For reproducible local development, start the repository broker and select the
 explicit anonymous plaintext local mode:
 
@@ -67,6 +77,8 @@ The local Docker/Mosquitto stack remains anonymous plaintext MQTT at
 `localhost:1883`. Local mode rejects broker overrides and MQTT credential
 environment variables so it cannot silently become an authenticated remote
 connection.
+
+### Custom broker mode
 
 Advanced operators can select `--custom`, provide an explicit broker host, and
 optionally override the port, TLS, and paired MQTT credentials:
