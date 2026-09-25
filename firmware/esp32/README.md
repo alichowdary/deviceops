@@ -1,17 +1,21 @@
 # DeviceOps ESP32 reference firmware
 
-This PlatformIO project is the verified DeviceOps reference implementation for
-an ESP32-S3 with a BME280 sensor and an onboard WS2812 RGB LED. It demonstrates
-the version 1 MQTT protocol; DeviceOps devices are not required to use ESP32,
-this board, or this firmware.
+This PlatformIO project contains two related pieces:
 
-## Hardware
+- `lib/DeviceOpsClient` is the reusable ESP32 Arduino client for hosted
+  DeviceOps protocol and MQTT plumbing.
+- `src/main.cpp` is the verified ESP32-S3 + BME280 + WS2812 reference
+  application built on that client.
+
+DeviceOps does not require this board or sensor and does not automatically
+discover hardware. Application firmware still initializes and reads its own
+sensors, converts units, declares capabilities, and performs command effects.
+
+## Hardware used by the reference application
 
 - ESP32-S3 development board compatible with `esp32-s3-devkitc-1`
 - BME280 at I2C address `0x76`
 - Onboard WS2812 RGB LED on GPIO 48 for the verified board
-
-Wire the BME280 as follows:
 
 | BME280 | ESP32-S3 |
 | --- | --- |
@@ -22,112 +26,172 @@ Wire the BME280 as follows:
 
 ## Hosted DeviceOps setup
 
-Register a new device in the DeviceOps console and save the returned device ID
-and one-time device secret. From `firmware/esp32`, create the ignored local
-header:
+Register a device in the DeviceOps console and save its Device ID and one-time
+DeviceOps secret. Create the ignored local header:
 
 ```powershell
+cd firmware\esp32
 Copy-Item include\secrets.example.h include\secrets.h
 ```
 
-Edit `include/secrets.h` and set only:
+Set only these values in `include/secrets.h`:
 
 - `WIFI_SSID`
 - `WIFI_PASSWORD`
 - `DEVICE_ID`
 - `DEVICE_SECRET`
 
-The committed example contains placeholders only. The real `secrets.h` is
-ignored by Git and must never be committed.
+Do not commit that file. Hosted mode automatically uses:
 
-Hosted mode is the default. The firmware automatically connects to
-`mqtt.deviceops.net:443` using verified TLS, the device ID as both MQTT username
-and client ID, and a broker password derived locally from the one-time device
-secret. There is no second MQTT credential to copy or store. The firmware never
-prints the device secret, signing key, or derived broker password.
+- `mqtt.deviceops.net:443`
+- verified TLS with the ISRG Root X1 CA
+- the Device ID as MQTT username and client ID
+- a broker password derived locally from the one-time DeviceOps secret
 
-Broker authentication is separate from the signed DeviceOps message envelopes.
-Both use key material derived from the device secret, but the broker password is
-domain-separated with `deviceops-broker-auth-v1`; the existing application
-message signature algorithm remains unchanged.
+There is no second MQTT credential. The firmware never prints the device
+secret, signing key, or derived broker password.
 
-TLS uses `WiFiClientSecure`, verifies the broker hostname and certificate chain,
-and trusts the committed public Let's Encrypt ISRG Root X1 CA. The firmware
-never calls `setInsecure()` or disables verification.
+## Build, upload, and monitor
+
+```powershell
+cd firmware\esp32
+C:\Users\HP\.platformio\penv\Scripts\pio.exe run
+C:\Users\HP\.platformio\penv\Scripts\pio.exe run --target upload
+C:\Users\HP\.platformio\penv\Scripts\pio.exe device monitor --baud 115200
+```
+
+Do not upload firmware that still has placeholders. The upload and monitor port
+can be passed explicitly if PlatformIO finds more than one serial device.
+
+## Ownership boundary
+
+The reference application owns:
+
+- Wi-Fi credentials and `WiFi.begin()`/reconnection;
+- BME280 and I2C initialization and reads;
+- WS2812 initialization and LED changes;
+- metric selection, labels, units, and telemetry cadence;
+- the hardware-specific `set_led` and diagnostics callback bodies.
+
+`DeviceOpsClient` owns:
+
+- hosted endpoint, port, verified TLS, and CA trust;
+- signing-key and broker-password derivation;
+- MQTT username/client ID, topics, connection, and reconnect attempts;
+- UTC/NTP synchronization and refusal to publish with an invalid clock;
+- one random boot session ID, signed retained presence, and retained Last Will;
+- signed capability, telemetry, command, and acknowledgement envelopes;
+- telemetry sequence numbering;
+- protocol/session/device validation for incoming commands;
+- reporting-interval validation and NVS persistence.
+
+Wi-Fi deliberately remains application-owned because provisioning and reconnect
+policy vary by product. UTC synchronization remains client-owned because valid
+timestamps are required DeviceOps protocol plumbing. Connect Wi-Fi before
+calling `device.begin()`, call `device.loop()` frequently, and call
+`device.syncClock()` after the application restores a lost Wi-Fi connection.
+
+## Reusing the client with another sensor
+
+The public API registers scalar capabilities before `begin()` and publishes all
+metrics for one sample in a single JSON object:
+
+```cpp
+#include <ArduinoJson.h>
+#include <DeviceOpsClient.h>
+#include <WiFi.h>
+
+#include "secrets.h"
+
+DeviceOpsClient device(DEVICE_ID, DEVICE_SECRET);
+unsigned long lastSample = 0;
+
+bool collectDiagnostics(
+    JsonObjectConst arguments,
+    JsonObject result,
+    String& error
+) {
+    (void)arguments;
+    (void)error;
+    result["sensor_ready"] = mySensorReady();
+    result["uptime_s"] = millis() / 1000UL;
+    return true;
+}
+
+void setup() {
+    initializeMySensor();
+
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) delay(250);
+
+    device.addNumberMetric("pm25_ugm3", "PM2.5", "µg/m³");
+    device.addIntegerMetric("uptime_s", "Uptime", "s");
+    device.onDiagnostics(collectDiagnostics);
+    device.begin();
+}
+
+void loop() {
+    device.loop();
+
+    if (millis() - lastSample >= 5000UL) {
+        lastSample = millis();
+        JsonDocument sample;
+        sample["pm25_ugm3"] = readMyPm25Sensor();
+        sample["uptime_s"] = millis() / 1000UL;
+        device.publishTelemetry(sample.as<JsonObjectConst>());
+    }
+}
+```
+
+Available metric declarations are `addNumberMetric()`, `addIntegerMetric()`,
+`addBooleanMetric()`, and `addStringMetric()`. Keys use lowercase letters,
+digits, and underscores and must begin with a letter. Numeric metrics receive
+charts and threshold-alert choices in the DeviceOps console.
+
+The current backend accepts only three protocol-v1 command types. Register only
+the ones the device actually implements:
+
+```cpp
+device.onSetLed(handleSetLed);
+device.enableReportingInterval(5);
+device.onDiagnostics(collectDiagnostics);
+```
+
+`onSetLed()` and `onDiagnostics()` callbacks perform application-specific work,
+return success/failure, and add safe fields to the supplied result object. The
+client validates the command and publishes the full signed ACK. The reporting
+interval command is handled and persisted by the client; the application uses
+`device.reportingIntervalSeconds()` to schedule readings.
+
+See [`lib/DeviceOpsClient/README.md`](lib/DeviceOpsClient/README.md) for the
+compact client API and lifecycle reference.
 
 ## Explicit local MQTT development
 
-To use the repository's anonymous local Mosquitto broker instead of hosted
-DeviceOps, uncomment the explicit mode switch in `include/secrets.h` and set the
-development computer's LAN IPv4 address:
+Hosted mode is the default. To use the repository's anonymous plaintext local
+broker, uncomment the explicit switch and set a reachable LAN address in the
+ignored `include/secrets.h`:
 
 ```cpp
 #define DEVICEOPS_LOCAL_MQTT
 #define DEVICEOPS_LOCAL_MQTT_BROKER "192.168.1.100"
 ```
 
-Local mode is fixed to plaintext anonymous MQTT on port `1883`. Use the LAN
-address of the computer running Docker; `localhost` and `127.0.0.1` refer to the
-ESP32 itself. This switch does not weaken or alter hosted TLS configuration.
+The reference application then constructs
+`DeviceOpsTransport::local(DEVICEOPS_LOCAL_MQTT_BROKER)`, which uses port 1883
+without TLS or broker credentials. Signed DeviceOps envelopes are still used.
+This explicit mode cannot weaken hosted TLS configuration.
 
-## Build, upload, and monitor
+## Preserved reference behavior
 
-Install PlatformIO Core or use the PlatformIO IDE extension, then run:
+The refactored application continues to provide BME280 temperature, humidity,
+and pressure; RSSI and uptime; online/offline presence; capability publication;
+LED ON/OFF; persisted reporting interval; application-supplied diagnostics;
+command ACKs; verified hosted TLS; reconnects; and the authenticated retained
+Last Will. One boot session ID is retained across MQTT reconnects, and a reset
+creates a new session.
 
-```powershell
-cd firmware\esp32
-pio run
-pio run --target upload
-pio device monitor --baud 115200
-```
-
-Do not upload firmware that still contains placeholder or build-only device
-credentials. Register the physical device in DeviceOps and set its returned
-`DEVICE_ID` and `DEVICE_SECRET` first.
-
-PlatformIO normally detects the upload and monitor port. If more than one serial
-device is connected, pass the appropriate port with `--upload-port` or
-`--port` instead of committing a machine-specific COM port.
-
-## DeviceOps behavior
-
-The firmware:
-
-- connects to Wi-Fi, synchronizes UTC time with NTP, and reconnects Wi-Fi/MQTT;
-- derives the application signing key and domain-separated hosted broker
-  password from `DEVICE_SECRET` without sending the plaintext secret over MQTT;
-- creates one random session ID per boot and retains it across MQTT reconnects;
-- publishes signed, retained QoS 1 `online`/`offline` presence with a signed MQTT
-  Last Will;
-- publishes a signed, retained QoS 1 capability manifest after every MQTT
-  connection, declaring temperature, humidity, pressure, RSSI, uptime, LED,
-  reporting-interval, and diagnostics support (and deliberately no battery);
-- publishes temperature, humidity, pressure, RSSI, and uptime telemetry with
-  signed QoS 0 messages and no retention;
-- verifies the session and HMAC before handling `set_led`,
-  `set_reporting_interval`, or `request_diagnostics`;
-- stores a successfully applied reporting interval in local ESP32 NVS so it
-  survives reboot and power cycles;
-- publishes signed command acknowledgements with QoS 1 and no retention.
-
-Topics and payloads follow [`../../contracts/mqtt.md`](../../contracts/mqtt.md).
-Protocol version 1 does not provide general anti-replay protection: captured
-authenticated messages can be replayed, including an older signed `online`
-message. Session matching still protects the normal delayed stale-Last-Will case
-after a newer boot session has been established.
-
-DeviceOps does not automatically discover arbitrary sensors. This reference
-firmware explicitly initializes and reads its BME280 and publishes the matching
-capability manifest. Firmware adapted for another sensor must read that hardware
-and advertise its own compatible manifest.
-
-## Adapting another sensor
-
-Your firmware remains responsible for reading its hardware. For example, a
-PM2.5 implementation might call `float pm25 = readSensor();`, advertise a
-`pm25_ugm3` telemetry capability with type `number`, label `PM2.5`, and unit
-`µg/m³`, then publish each reading under that same `pm25_ugm3` key. DeviceOps
-will provide the applicable scalar value, recent-sample column, numeric chart,
-and threshold-alert choice from the manifest; no PM2.5-specific frontend branch
-is needed. The device developer still owns the sensor driver, wiring, sampling,
-and conversion code.
+The deterministic startup self-test verifies signing-key derivation, the
+DeviceOps message-signature test vector, and broker-password derivation without
+using real credentials. Protocol details and replay limitations remain defined
+by [`../../contracts/mqtt.md`](../../contracts/mqtt.md).
