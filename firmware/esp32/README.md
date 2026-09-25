@@ -20,41 +20,55 @@ Wire the BME280 as follows:
 | SDA | GPIO 8 |
 | SCL | GPIO 9 |
 
-## Local secrets
+## Hosted DeviceOps setup
 
-From `firmware/esp32`, create the ignored local header:
+Register a new device in the DeviceOps console and save the returned device ID
+and one-time device secret. From `firmware/esp32`, create the ignored local
+header:
 
 ```powershell
 Copy-Item include\secrets.example.h include\secrets.h
 ```
 
-Edit `include/secrets.h` and set the Wi-Fi, MQTT, `DEVICE_ID`, and
-`DEVICE_SECRET` values. The device ID and one-time secret come from a DeviceOps
-device registration. The committed example contains placeholders only. The real
-`secrets.h` is ignored by Git and must never be committed.
+Edit `include/secrets.h` and set only:
 
-For local anonymous Mosquitto, use the computer's LAN IPv4 address, port `1883`,
-`MQTT_TLS_ENABLED = false`, and empty MQTT username/password strings.
-`127.0.0.1` would refer to the ESP32 itself.
+- `WIFI_SSID`
+- `WIFI_PASSWORD`
+- `DEVICE_ID`
+- `DEVICE_SECRET`
 
-Production HiveMQ credentials are operator-managed secrets and are not supplied
-by this public repository. An operator connecting this reference device to
-HiveMQ Cloud uses the following transport shape with locally supplied broker
-credentials:
+The committed example contains placeholders only. The real `secrets.h` is
+ignored by Git and must never be committed.
+
+Hosted mode is the default. The firmware automatically connects to
+`mqtt.deviceops.net:443` using verified TLS, the device ID as both MQTT username
+and client ID, and a broker password derived locally from the one-time device
+secret. There is no second MQTT credential to copy or store. The firmware never
+prints the device secret, signing key, or derived broker password.
+
+Broker authentication is separate from the signed DeviceOps message envelopes.
+Both use key material derived from the device secret, but the broker password is
+domain-separated with `deviceops-broker-auth-v1`; the existing application
+message signature algorithm remains unchanged.
+
+TLS uses `WiFiClientSecure`, verifies the broker hostname and certificate chain,
+and trusts the committed public Let's Encrypt ISRG Root X1 CA. The firmware
+never calls `setInsecure()` or disables verification.
+
+## Explicit local MQTT development
+
+To use the repository's anonymous local Mosquitto broker instead of hosted
+DeviceOps, uncomment the explicit mode switch in `include/secrets.h` and set the
+development computer's LAN IPv4 address:
 
 ```cpp
-constexpr char MQTT_BROKER[] =
-    "YOUR_MQTT_BROKER_HOST";
-constexpr uint16_t MQTT_PORT = 8883;
-constexpr bool MQTT_TLS_ENABLED = true;
-constexpr char MQTT_USERNAME[] = "YOUR_HIVEMQ_USERNAME";
-constexpr char MQTT_PASSWORD[] = "YOUR_HIVEMQ_PASSWORD";
+#define DEVICEOPS_LOCAL_MQTT
+#define DEVICEOPS_LOCAL_MQTT_BROKER "192.168.1.100"
 ```
 
-TLS mode uses `WiFiClientSecure`, verifies the broker hostname and certificate
-chain, and trusts the committed public Let's Encrypt ISRG Root X1 CA. It never
-uses insecure certificate mode. Broker authentication remains separate from the
-existing signed DeviceOps message envelopes.
+Local mode is fixed to plaintext anonymous MQTT on port `1883`. Use the LAN
+address of the computer running Docker; `localhost` and `127.0.0.1` refer to the
+ESP32 itself. This switch does not weaken or alter hosted TLS configuration.
 
 ## Build, upload, and monitor
 
@@ -80,8 +94,8 @@ device is connected, pass the appropriate port with `--upload-port` or
 The firmware:
 
 - connects to Wi-Fi, synchronizes UTC time with NTP, and reconnects Wi-Fi/MQTT;
-- derives an MQTT signing key from `DEVICE_SECRET` without sending the plaintext
-  secret over MQTT;
+- derives the application signing key and domain-separated hosted broker
+  password from `DEVICE_SECRET` without sending the plaintext secret over MQTT;
 - creates one random session ID per boot and retains it across MQTT reconnects;
 - publishes signed, retained QoS 1 `online`/`offline` presence with a signed MQTT
   Last Will;
@@ -101,6 +115,11 @@ Protocol version 1 does not provide general anti-replay protection: captured
 authenticated messages can be replayed, including an older signed `online`
 message. Session matching still protects the normal delayed stale-Last-Will case
 after a newer boot session has been established.
+
+DeviceOps does not automatically discover arbitrary sensors. This reference
+firmware explicitly initializes and reads its BME280 and publishes the matching
+capability manifest. Firmware adapted for another sensor must read that hardware
+and advertise its own compatible manifest.
 
 ## Adapting another sensor
 

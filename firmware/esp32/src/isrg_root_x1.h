@@ -1,7 +1,7 @@
 #pragma once
 
-// Public Let's Encrypt ISRG Root X1 CA certificate used to verify HiveMQ
-// Cloud's server certificate. Source: https://letsencrypt.org/certs/isrgrootx1.pem
+// Public Let's Encrypt ISRG Root X1 CA certificate used to verify the hosted
+// DeviceOps MQTT server. Source: https://letsencrypt.org/certs/isrgrootx1.pem
 constexpr char ISRG_ROOT_X1[] = R"CERT(-----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh

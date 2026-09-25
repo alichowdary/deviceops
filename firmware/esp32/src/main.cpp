@@ -21,6 +21,8 @@ namespace {
 
 constexpr size_t TOPIC_BUFFER_SIZE = 128;
 constexpr size_t MQTT_BUFFER_SIZE = 3072;
+constexpr char HOSTED_MQTT_BROKER[] = "mqtt.deviceops.net";
+constexpr uint16_t HOSTED_MQTT_PORT = 443;
 
 constexpr uint8_t I2C_SDA = 8;
 constexpr uint8_t I2C_SCL = 9;
@@ -45,6 +47,9 @@ char commandAckTopic[TOPIC_BUFFER_SIZE];
 char capabilitiesTopic[TOPIC_BUFFER_SIZE];
 char bootSessionId[mqtt_auth::SESSION_ID_HEX_SIZE + 1];
 uint8_t signingKey[mqtt_auth::SIGNING_KEY_SIZE];
+#if !defined(DEVICEOPS_LOCAL_MQTT)
+char brokerPassword[mqtt_auth::BROKER_PASSWORD_HEX_SIZE + 1];
+#endif
 String offlineEnvelope;
 
 bool bmeReady = false;
@@ -153,22 +158,16 @@ bool initializeDeviceAuthentication() {
         Serial.println("DEVICE_SECRET must not be empty.");
         return false;
     }
-    if (WIFI_SSID[0] == '\0' || MQTT_BROKER[0] == '\0') {
-        Serial.println("Wi-Fi SSID and MQTT broker must not be empty.");
+    if (WIFI_SSID[0] == '\0') {
+        Serial.println("Wi-Fi SSID must not be empty.");
         return false;
     }
-    if (MQTT_PORT == 0) {
-        Serial.println("MQTT port must be from 1 to 65535.");
+#if defined(DEVICEOPS_LOCAL_MQTT)
+    if (DEVICEOPS_LOCAL_MQTT_BROKER[0] == '\0') {
+        Serial.println("Local MQTT broker host must not be empty.");
         return false;
     }
-    const bool mqttUsernameConfigured = MQTT_USERNAME[0] != '\0';
-    const bool mqttPasswordConfigured = MQTT_PASSWORD[0] != '\0';
-    if (mqttUsernameConfigured != mqttPasswordConfigured) {
-        Serial.println(
-            "MQTT username and password must be configured together."
-        );
-        return false;
-    }
+#endif
     if (
         !buildTopic(statusTopic, sizeof(statusTopic), "status") ||
         !buildTopic(telemetryTopic, sizeof(telemetryTopic), "telemetry") ||
@@ -187,6 +186,12 @@ bool initializeDeviceAuthentication() {
         Serial.println("MQTT signing-key derivation failed.");
         return false;
     }
+#if !defined(DEVICEOPS_LOCAL_MQTT)
+    if (!mqtt_auth::deriveBrokerPassword(signingKey, brokerPassword)) {
+        Serial.println("MQTT broker-password derivation failed.");
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -640,10 +645,12 @@ void connectMqtt() {
     Serial.print("Connecting to MQTT");
 
     while (!mqttClient.connected()) {
-        const bool hasBrokerCredentials = MQTT_USERNAME[0] != '\0';
-        const bool connected = hasBrokerCredentials
-            ? mqttClient.connect(DEVICE_ID, MQTT_USERNAME, MQTT_PASSWORD)
-            : mqttClient.connect(DEVICE_ID);
+#if defined(DEVICEOPS_LOCAL_MQTT)
+        const bool connected = mqttClient.connect(DEVICE_ID);
+#else
+        const bool connected =
+            mqttClient.connect(DEVICE_ID, DEVICE_ID, brokerPassword);
+#endif
         if (connected) {
             Serial.println();
             Serial.println("MQTT connected!");
@@ -793,12 +800,16 @@ void setup() {
         haltStartup();
     }
 
-    if (MQTT_TLS_ENABLED) {
-        secureNetwork.setCACert(ISRG_ROOT_X1);
-        mqttClient.begin(MQTT_BROKER, MQTT_PORT, secureNetwork);
-    } else {
-        mqttClient.begin(MQTT_BROKER, MQTT_PORT, plaintextNetwork);
-    }
+#if defined(DEVICEOPS_LOCAL_MQTT)
+    Serial.print("MQTT mode: local plaintext at ");
+    Serial.print(DEVICEOPS_LOCAL_MQTT_BROKER);
+    Serial.println(":1883");
+    mqttClient.begin(DEVICEOPS_LOCAL_MQTT_BROKER, 1883, plaintextNetwork);
+#else
+    Serial.println("MQTT mode: hosted DeviceOps with verified TLS");
+    secureNetwork.setCACert(ISRG_ROOT_X1);
+    mqttClient.begin(HOSTED_MQTT_BROKER, HOSTED_MQTT_PORT, secureNetwork);
+#endif
     mqttClient.onMessage(handleCommand);
     mqttClient.setWill(statusTopic, offlineEnvelope.c_str(), true, 1);
     mqttClient.setKeepAlive(5);

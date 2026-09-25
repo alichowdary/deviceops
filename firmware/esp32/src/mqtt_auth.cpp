@@ -13,6 +13,7 @@ namespace {
 
 constexpr char HEX_DIGITS[] = "0123456789abcdef";
 constexpr char AUTH_PREFIX[] = "deviceops-auth-v1";
+constexpr char BROKER_AUTH_CONTEXT[] = "deviceops-broker-auth-v1";
 
 
 bool isLowercaseHex(const char* value, size_t expectedLength) {
@@ -72,6 +73,44 @@ bool deriveSigningKey(
                signingKey,
                0
            ) == 0;
+}
+
+
+bool deriveBrokerPassword(
+    const uint8_t signingKey[SIGNING_KEY_SIZE],
+    char brokerPasswordHex[BROKER_PASSWORD_HEX_SIZE + 1]
+) {
+    if (signingKey == nullptr || brokerPasswordHex == nullptr) {
+        return false;
+    }
+
+    const mbedtls_md_info_t* sha256Info =
+        mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (sha256Info == nullptr) {
+        return false;
+    }
+
+    uint8_t brokerPassword[SIGNING_KEY_SIZE];
+    const int result = mbedtls_md_hmac(
+        sha256Info,
+        signingKey,
+        SIGNING_KEY_SIZE,
+        reinterpret_cast<const unsigned char*>(BROKER_AUTH_CONTEXT),
+        sizeof(BROKER_AUTH_CONTEXT) - 1,
+        brokerPassword
+    );
+    if (result != 0) {
+        memset(brokerPassword, 0, sizeof(brokerPassword));
+        return false;
+    }
+
+    bytesToHex(
+        brokerPassword,
+        sizeof(brokerPassword),
+        brokerPasswordHex
+    );
+    memset(brokerPassword, 0, sizeof(brokerPassword));
+    return true;
 }
 
 
@@ -290,12 +329,16 @@ bool runInteroperabilitySelfTest() {
     constexpr char EXPECTED_SIGNATURE[] =
         "65c72f03a11bb3fb66452ba74ad9ecf1"
         "42e7da2a3c49449cd76f47530207c798";
+    constexpr char EXPECTED_BROKER_PASSWORD[] =
+        "51e72cba8e5b0c924950ca9a77150d47"
+        "24d15886dc078f8bfaa3bc7cb18d19d2";
     const String body = "{\"message\":\"hello-deviceops\"}";
 
     uint8_t signingKey[SIGNING_KEY_SIZE];
     char signingKeyHex[SIGNATURE_HEX_SIZE + 1];
     char bodyDigestHex[SIGNATURE_HEX_SIZE + 1];
     char signatureHex[SIGNATURE_HEX_SIZE + 1];
+    char brokerPasswordHex[BROKER_PASSWORD_HEX_SIZE + 1];
 
     if (!deriveSigningKey(TEST_SECRET, signingKey)) {
         return false;
@@ -326,6 +369,12 @@ bool runInteroperabilitySelfTest() {
             signatureHex,
             EXPECTED_SIGNATURE,
             SIGNATURE_HEX_SIZE
+        ) &&
+        deriveBrokerPassword(signingKey, brokerPasswordHex) &&
+        constantTimeEquals(
+            brokerPasswordHex,
+            EXPECTED_BROKER_PASSWORD,
+            BROKER_PASSWORD_HEX_SIZE
         );
 
     memset(signingKey, 0, sizeof(signingKey));

@@ -11,6 +11,7 @@ namespace mqtt_auth {
 constexpr size_t SIGNING_KEY_SIZE = 32;
 constexpr size_t SESSION_ID_HEX_SIZE = 32;
 constexpr size_t SIGNATURE_HEX_SIZE = 64;
+constexpr size_t BROKER_PASSWORD_HEX_SIZE = 64;
 
 enum class Direction : uint8_t {
     DeviceToServer,
@@ -26,6 +27,11 @@ struct Envelope {
 bool deriveSigningKey(
     const char* deviceSecret,
     uint8_t signingKey[SIGNING_KEY_SIZE]
+);
+
+bool deriveBrokerPassword(
+    const uint8_t signingKey[SIGNING_KEY_SIZE],
+    char brokerPasswordHex[BROKER_PASSWORD_HEX_SIZE + 1]
 );
 
 void generateBootSessionId(char sessionId[SESSION_ID_HEX_SIZE + 1]);
