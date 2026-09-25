@@ -1,6 +1,6 @@
 # DeviceOps
 
-DeviceOps is an IoT fleet management and observability platform that connects
+DeviceOps is a hosted IoT fleet management and observability platform that connects
 compatible devices through a versioned MQTT protocol, persists and evaluates
 their data in FastAPI and PostgreSQL, and exposes a realtime Next.js operations
 console.
@@ -27,10 +27,10 @@ traffic, commits accepted state to PostgreSQL, and only then publishes
 owner-scoped updates to the web console.
 
 ```text
-Device / simulator -> MQTT broker -> FastAPI -> PostgreSQL
-                                        |
-Browser <- REST snapshots and history --+
-        <- authenticated WebSocket deltas
+Device / simulator -> mqtt.deviceops.net -> Fly Mosquitto -> FastAPI -> PostgreSQL
+                                                                  |
+Next.js browser <- REST snapshots and history --------------------+
+                <- authenticated WebSocket deltas
 ```
 
 Commands follow a deliberately closed loop:
@@ -48,9 +48,10 @@ only that committed acknowledgement can mark it `succeeded` or `failed`.
 | Responsibility                     | Deployment                                               |
 | ---------------------------------- | -------------------------------------------------------- |
 | Next.js frontend and custom domain | Vercel at [deviceops.net](https://deviceops.net)         |
-| FastAPI backend                    | Fly.io                                                   |
+| FastAPI backend                    | Fly.io app `deviceops-api-prod`                          |
 | PostgreSQL                         | Supabase                                                 |
-| MQTT broker                        | HiveMQ Cloud with broker authentication and verified TLS |
+| MQTT broker                        | DeviceOps-managed Mosquitto 2.1.2 on Fly.io              |
+| Public MQTT endpoint               | `mqtt.deviceops.net:443` with broker auth and verified TLS |
 
 Local development uses Docker Compose, PostgreSQL, and Eclipse Mosquitto. The
 repository's anonymous plaintext Mosquitto listener is intentionally local-only
@@ -103,15 +104,27 @@ ESP32-S3 + BME280 firmware are the verified implementations in this repository.
 
 ## Run DeviceOps
 
-### Path A: Python simulator
+### Path A: Python simulator (recommended)
 
 The simulator is the quickest software-only route and requires no hardware.
-Start the local stack, register a device through the local web console, save its
-one-time secret, and run the simulator with the generated device ID. Profiles
-include `default`, `portable-sensor`, and `air-quality`.
+Create an account at [deviceops.net](https://deviceops.net), register a device in
+Fleet, save its device ID and one-time secret, then run:
 
-See the [simulator guide](simulator/README.md) for installation, profile, local
-MQTT, and optional TLS configuration.
+```powershell
+cd simulator
+.\.venv\Scripts\Activate.ps1
+$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
+python -m device_simulator --device-id <registered-device-id>
+Remove-Item Env:DEVICEOPS_DEVICE_SECRET
+```
+
+The default connects directly to `mqtt.deviceops.net:443` with verified TLS. It
+uses the device ID as the MQTT username/client ID and derives the broker password
+locally from the DeviceOps secret; there is no second user-facing MQTT credential.
+Profiles include `default`, `portable-sensor`, and `air-quality`.
+
+See the [simulator guide](simulator/README.md) for installation, profiles, local
+development, and advanced custom-broker configuration.
 
 ### Path B: ESP32-S3 reference hardware
 
@@ -120,13 +133,16 @@ sensor, and the board's WS2812 LED. It demonstrates the same signed protocol,
 presence, capabilities, telemetry, commands, and acknowledgements as the
 simulator; it is one implementation, not a platform requirement.
 
-See the [firmware guide](firmware/esp32/README.md) for wiring, PlatformIO setup,
-build, upload, and local credential configuration.
+For normal hosted setup, copy `secrets.example.h` to ignored `secrets.h` and set
+only Wi-Fi credentials, the registered Device ID, and the one-time DeviceOps
+secret. See the [firmware guide](firmware/esp32/README.md) for wiring, PlatformIO
+setup, build, upload, and the secondary local-development mode.
 
-Production HiveMQ credentials are operator-managed secrets and are not supplied
-to public repository visitors. The Docker Compose/Mosquitto path is the public,
-reproducible development environment; the hosted site demonstrates the separate
-production architecture.
+Device registration automatically provisions its Mosquitto identity. FastAPI
+stores only the signing key derived from the one-time secret and uses it to
+derive the domain-separated broker password for provisioning and revocation.
+Device firmware remains responsible for sensor drivers, wiring, sampling,
+units/conversions, and advertising an accurate capability manifest.
 
 ## Local development
 
@@ -138,7 +154,7 @@ The detailed guides remain authoritative, but the basic sequence is:
 4. Start FastAPI with `python -m uvicorn deviceops_api.main:app --host 127.0.0.1 --port 8000`.
 5. Install and start the web console with `npm install` and `npm run dev` from `apps/web`.
 6. Register or sign in at <http://localhost:3000>, then create a device.
-7. Run a simulator profile with the returned device ID and one-time secret.
+7. Run a simulator profile with the returned device ID, one-time secret, and `--local`.
 
 Complete setup and configuration:
 

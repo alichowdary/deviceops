@@ -490,17 +490,17 @@ replaced with a strong secret supplied through `DEVICEOPS_AUTH_SECRET` before
 deployment. Access tokens use HS256 and expire after 24 hours by default.
 
 The default MQTT settings keep local anonymous Mosquitto on
-`localhost:1883` unchanged. For the production HiveMQ Cloud broker, configure
-the host, port `8883`, broker username and password, and enable verified TLS.
-These production broker credentials are operator-managed secrets and are not
-included in the public repository:
+`localhost:1883` unchanged. Production connects the normal FastAPI MQTT service
+identity to the DeviceOps-managed Mosquitto broker at `mqtt.deviceops.net:443`
+with verified TLS. Its username and password are operator-managed secrets and
+are not included in the public repository:
 
 ```powershell
-$env:DEVICEOPS_MQTT_HOST = "<your-mqtt-broker-host>"
-$env:DEVICEOPS_MQTT_PORT = "8883"
+$env:DEVICEOPS_MQTT_HOST = "mqtt.deviceops.net"
+$env:DEVICEOPS_MQTT_PORT = "443"
 $env:DEVICEOPS_MQTT_TLS = "true"
-$env:DEVICEOPS_MQTT_USERNAME = Read-Host "HiveMQ username"
-$env:DEVICEOPS_MQTT_PASSWORD = Read-Host "HiveMQ password"
+$env:DEVICEOPS_MQTT_USERNAME = Read-Host "FastAPI MQTT service username"
+$env:DEVICEOPS_MQTT_PASSWORD = Read-Host "FastAPI MQTT service password"
 python -m uvicorn deviceops_api.main:app --host 127.0.0.1 --port 8000
 Remove-Item Env:DEVICEOPS_MQTT_USERNAME
 Remove-Item Env:DEVICEOPS_MQTT_PASSWORD
@@ -524,13 +524,16 @@ hostname verification; it is never configured in insecure mode.
 
 The provisioning identity is exclusively a Dynamic Security administrator. It
 must not reuse `DEVICEOPS_MQTT_USERNAME` or `DEVICEOPS_MQTT_PASSWORD`, which
-continue to configure the existing normal HiveMQ ingestion/command connection.
+configure the normal, non-administrative FastAPI ingestion/command connection.
+In production both connections use `mqtt.deviceops.net:443` with verified TLS,
+but they have distinct roles and credentials.
 Provisioning sends QoS 1 control requests to
 `$CONTROL/dynamic-security/v1`, waits for a matching correlated response on
 `$CONTROL/dynamic-security/v1/response`, creates a client whose username and
 client ID both equal `device_id`, and atomically assigns the existing
 `deviceops-device-v1` role at priority 10 through the `createClient` `roles`
-array. This API milestone does not create that role or change its ACLs.
+array. The broker's persisted Dynamic Security configuration defines that
+role and its per-device ACLs.
 
 The backend uses one short synchronous SQLAlchemy session per HTTP request or
 MQTT message. A malformed message is logged and rejected without stopping the

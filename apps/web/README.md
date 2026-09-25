@@ -7,6 +7,11 @@ status, command, capability, event, and alert updates through one FastAPI
 WebSocket. The browser does not
 connect to MQTT.
 
+The production console at [deviceops.net](https://deviceops.net) is the hosted
+self-service product. A signed-in user can register a device and connect the
+simulator or compatible hardware directly with the returned device ID and
+one-time DeviceOps secret. The setup below is for local frontend development.
+
 ## Requirements
 
 - Node.js 20.9 or newer
@@ -88,7 +93,8 @@ External notifications are not implemented.
 
 Authenticated users can select **Add device** from Fleet to generate a device ID
 and one-time device secret. Copy both values before closing the credential
-dialog; the plaintext secret cannot be retrieved again. A registered device that
+dialog; the plaintext secret cannot be retrieved again, and no separate MQTT
+credential is required for hosted setup. A registered device that
 has not connected yet appears as `Unknown` with `Never` for its seen timestamps.
 Device Detail can assign or clear an optional 80-character display name without
 changing the immutable device ID. Fleet and Alerts prefer the friendly name while
@@ -113,7 +119,7 @@ the REST snapshot to fill the gap before continuing with WebSocket deltas.
 Refresh remains available for an explicit snapshot reload. The browser never
 accesses MQTT directly.
 
-## Run the full local demo
+## Run the full local stack
 
 Use separate PowerShell terminals.
 
@@ -140,7 +146,7 @@ their generated IDs and one-time secrets:
 cd simulator
 .\.venv\Scripts\Activate.ps1
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
-python -m device_simulator --device-id <registered-device-id> --interval 5
+python -m device_simulator --device-id <registered-device-id> --local --interval 5
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 

@@ -105,8 +105,9 @@ export function AddDeviceDialog({
           {credentials ? (
             <>
               <p className="dialog-warning" id="add-device-description">
-                Save these credentials now. The device secret cannot be shown again
-                after this dialog is closed.
+                Save the secret now. It is the only DeviceOps device secret and cannot
+                be shown again after this dialog is closed. No separate MQTT credential
+                is required.
               </p>
 
               <div className="credential-list">
@@ -166,14 +167,14 @@ export function AddDeviceDialog({
                   onChange={(event) => setSaved(event.target.checked)}
                   type="checkbox"
                 />
-                I have saved these credentials
+                I have saved the device ID and one-time secret
               </label>
             </>
           ) : (
             <>
               <p id="add-device-description">
-                DeviceOps will generate a device ID and secret. Copy both into the
-                device configuration before dismissing the credentials.
+                DeviceOps will generate a device ID and provision secure broker access
+                from one device secret. No separate MQTT credential is required.
               </p>
               <p className="dialog-warning">
                 The plaintext device secret is shown once and cannot be recovered
@@ -196,7 +197,7 @@ export function AddDeviceDialog({
                   href="/getting-started"
                   onClick={closeDialog}
                 >
-                  View setup instructions
+                  Continue to Getting Started
                 </Link>
               ) : null}
               <button

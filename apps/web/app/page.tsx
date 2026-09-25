@@ -35,7 +35,7 @@ const productAreas = [
 export default function LandingPage() {
   const { initialized, user } = useAuth();
   const consoleHref = user ? "/fleet" : "/login";
-  const consoleLabel = initialized && user ? "Open console" : "View live demo";
+  const consoleLabel = initialized && user ? "Open console" : "Create account";
 
   return (
     <div className="landing-shell">
@@ -55,12 +55,12 @@ export default function LandingPage() {
       <main>
         <section className="landing-hero">
           <div className="landing-hero-copy">
-            <span className="state-eyebrow">Heterogeneous device operations</span>
+            <span className="state-eyebrow">Hosted IoT fleet operations</span>
             <h1>Operate IoT devices from one console.</h1>
             <p>
-              Explore the live DeviceOps deployment: view sensor readings, see what
-              is online, send supported commands, track activity, and create alerts
-              from one focused operations console.
+              Register your own devices, monitor live and historical telemetry,
+              see what is online, send supported commands, and act on events and
+              alerts from one focused operations console.
             </p>
             <div className="landing-actions">
               <Link className="button button-primary" href={consoleHref}>
@@ -124,12 +124,12 @@ export default function LandingPage() {
 
         <section className="landing-final-cta">
           <div>
-            <span className="state-eyebrow">Hosted demonstration and reproducible stack</span>
-            <h2>Explore DeviceOps, then run it with your devices.</h2>
+            <span className="state-eyebrow">Connect software or hardware</span>
+            <h2>Register a device and connect it directly to DeviceOps.</h2>
             <p>
-              deviceops.net demonstrates the deployed system. To connect your own
-              device, use the repository&apos;s local stack or deploy DeviceOps with an
-              MQTT broker you control.
+              Create an account to receive a device ID and one-time secret. Start
+              quickly with the Python simulator or use the verified ESP32 reference
+              firmware; secure broker access is provisioned automatically.
             </p>
           </div>
           <Link className="button button-primary" href={consoleHref}>

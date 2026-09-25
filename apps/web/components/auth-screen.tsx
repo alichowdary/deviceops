@@ -55,8 +55,8 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void })
             <span className="state-eyebrow">Operator access</span>
             <h1 id="auth-title">{mode === "login" ? "Sign in" : "Create account"}</h1>
             <p>
-              Authenticate to inspect the hosted demonstration&apos;s devices,
-              telemetry, and command activity.
+              Sign in to operate your fleet, or create an account to register and
+              connect a device to hosted DeviceOps.
             </p>
           </div>
 

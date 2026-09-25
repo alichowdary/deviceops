@@ -43,7 +43,7 @@ const operationalAreas = [
 export default function AboutPage() {
   const { initialized, user } = useAuth();
   const consoleHref = user ? "/fleet" : "/login";
-  const consoleLabel = initialized && user ? "Open console" : "View live demo";
+  const consoleLabel = initialized && user ? "Open console" : "Create account";
   const gettingStartedHref = user ? "/getting-started" : "/login";
 
   return (
@@ -117,14 +117,18 @@ export default function AboutPage() {
               Device traffic is ingested, authenticated, committed, and then delivered
               to the browser through the application backend. Compatible devices
               implement the DeviceOps v1 protocol and advertise their own metrics
-              and commands.
+              and commands. In production the path is device or simulator →
+              mqtt.deviceops.net → Fly-hosted Mosquitto → FastAPI → PostgreSQL →
+              REST/WebSocket → Next.js console.
             </p>
           </div>
           <div className="architecture-board">
             <div className="architecture-flow">
               <div className="architecture-node"><Cpu size={15} />Device / simulator</div>
               <span aria-hidden="true">→</span>
-              <div className="architecture-node"><RadioTower size={15} />MQTT broker</div>
+              <div className="architecture-node"><RadioTower size={15} />mqtt.deviceops.net</div>
+              <span aria-hidden="true">→</span>
+              <div className="architecture-node"><RadioTower size={15} />Fly Mosquitto</div>
               <span aria-hidden="true">→</span>
               <div className="architecture-node architecture-node-core"><Boxes size={15} />FastAPI</div>
               <span aria-hidden="true">→</span>
@@ -157,6 +161,8 @@ export default function AboutPage() {
               The console renders those capabilities instead of hard-coding a single
               device type, so a sensor, portable monitor, or future implementation can
               share the same operational workflow without pretending to be identical.
+              Device firmware still owns sensor drivers, wiring, sampling, units, and
+              the decision about which compatible capabilities to advertise.
             </p>
           </div>
         </section>
@@ -171,10 +177,10 @@ export default function AboutPage() {
             <p>
               User authentication protects the console, and device ownership keeps
               fleet data scoped to its operator. Registration issues a one-time device
-              secret that cannot be recovered later. Devices use it to authenticate
-              signed, versioned messages; production MQTT transport also uses TLS and
-              broker authentication. Credentials and internal secrets are never shown
-              on this page.
+              secret that cannot be recovered later. That one secret supplies key
+              material for separate broker authentication and signed, versioned
+              DeviceOps envelopes. Production MQTT uses verified TLS. Credentials and
+              internal secrets are never shown on this page.
             </p>
           </div>
         </section>
@@ -212,8 +218,9 @@ export default function AboutPage() {
             <h2>Hosted as a complete system</h2>
             <p>
               The production stack uses Vercel for the Next.js frontend, Fly.io for
-              the FastAPI backend, Supabase PostgreSQL for persistence, and HiveMQ
-              Cloud for MQTT, served through the custom domain deviceops.net.
+              the FastAPI backend, Supabase PostgreSQL for persistence, and a
+              DeviceOps-managed Mosquitto broker on Fly.io at
+              mqtt.deviceops.net:443 with verified TLS.
             </p>
           </article>
         </section>
@@ -221,10 +228,11 @@ export default function AboutPage() {
         <section className="landing-final-cta">
           <div>
             <span className="state-eyebrow">DeviceOps console</span>
-            <h2>Explore the hosted system or run your own.</h2>
+            <h2>Connect your device to the hosted system.</h2>
             <p>
-              deviceops.net is the live demonstration. Connect your own device with
-              the repository&apos;s local stack or a deployment and MQTT broker you control.
+              Create an account, register a device, and connect the Python simulator,
+              ESP32 reference firmware, or a compatible custom implementation. The
+              repository&apos;s Docker stack remains available separately for local development.
             </p>
           </div>
           <div className="landing-actions about-final-actions">
