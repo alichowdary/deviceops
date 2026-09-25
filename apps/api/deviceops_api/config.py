@@ -62,6 +62,13 @@ class Settings:
     mqtt_username: str | None
     mqtt_password: str | None
     mqtt_tls: bool
+    broker_provisioning_enabled: bool
+    broker_provisioning_host: str | None
+    broker_provisioning_port: int
+    broker_provisioning_username: str | None
+    broker_provisioning_password: str | None
+    broker_provisioning_tls: bool
+    broker_provisioning_timeout_seconds: int
     cors_origins: tuple[str, ...]
     auth_secret: str
     auth_token_lifetime_seconds: int
@@ -80,6 +87,42 @@ class Settings:
                 "must be configured together"
             )
 
+        broker_provisioning_enabled = _boolean_environment_value(
+            "DEVICEOPS_BROKER_PROVISIONING_ENABLED", False
+        )
+        broker_provisioning_host = _optional_environment_value(
+            "DEVICEOPS_BROKER_PROVISIONING_HOST"
+        )
+        broker_provisioning_username = _optional_environment_value(
+            "DEVICEOPS_BROKER_PROVISIONING_USERNAME"
+        )
+        broker_provisioning_password = _optional_environment_value(
+            "DEVICEOPS_BROKER_PROVISIONING_PASSWORD"
+        )
+        if broker_provisioning_enabled:
+            missing_names = [
+                name
+                for name, value in (
+                    (
+                        "DEVICEOPS_BROKER_PROVISIONING_HOST",
+                        broker_provisioning_host,
+                    ),
+                    (
+                        "DEVICEOPS_BROKER_PROVISIONING_USERNAME",
+                        broker_provisioning_username,
+                    ),
+                    (
+                        "DEVICEOPS_BROKER_PROVISIONING_PASSWORD",
+                        broker_provisioning_password,
+                    ),
+                )
+                if value is None
+            ]
+            if missing_names:
+                raise ValueError(
+                    "Broker provisioning requires " + ", ".join(missing_names)
+                )
+
         return cls(
             database_url=os.getenv(
                 "DEVICEOPS_DATABASE_URL",
@@ -92,6 +135,21 @@ class Settings:
             mqtt_password=mqtt_password,
             mqtt_tls=_boolean_environment_value(
                 "DEVICEOPS_MQTT_TLS", False
+            ),
+            broker_provisioning_enabled=broker_provisioning_enabled,
+            broker_provisioning_host=broker_provisioning_host,
+            broker_provisioning_port=_positive_integer_environment_value(
+                "DEVICEOPS_BROKER_PROVISIONING_PORT", 443
+            ),
+            broker_provisioning_username=broker_provisioning_username,
+            broker_provisioning_password=broker_provisioning_password,
+            broker_provisioning_tls=_boolean_environment_value(
+                "DEVICEOPS_BROKER_PROVISIONING_TLS", True
+            ),
+            broker_provisioning_timeout_seconds=(
+                _positive_integer_environment_value(
+                    "DEVICEOPS_BROKER_PROVISIONING_TIMEOUT_SECONDS", 5
+                )
             ),
             cors_origins=tuple(
                 origin.strip()

@@ -21,6 +21,13 @@ class MqttSettingsTests(unittest.TestCase):
         self.assertFalse(configured.mqtt_tls)
         self.assertIsNone(configured.mqtt_username)
         self.assertIsNone(configured.mqtt_password)
+        self.assertFalse(configured.broker_provisioning_enabled)
+        self.assertIsNone(configured.broker_provisioning_host)
+        self.assertEqual(configured.broker_provisioning_port, 443)
+        self.assertIsNone(configured.broker_provisioning_username)
+        self.assertIsNone(configured.broker_provisioning_password)
+        self.assertTrue(configured.broker_provisioning_tls)
+        self.assertEqual(configured.broker_provisioning_timeout_seconds, 5)
 
     def test_tls_and_credentials_are_loaded_without_changing_values(self) -> None:
         with patch.dict(
@@ -52,6 +59,89 @@ class MqttSettingsTests(unittest.TestCase):
                 with patch.dict(os.environ, environment, clear=True):
                     with self.assertRaises(ValueError):
                         Settings.from_environment()
+
+    def test_disabled_provisioning_does_not_require_credentials(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"DEVICEOPS_BROKER_PROVISIONING_ENABLED": "false"},
+            clear=True,
+        ):
+            configured = Settings.from_environment()
+
+        self.assertFalse(configured.broker_provisioning_enabled)
+        self.assertIsNone(configured.broker_provisioning_password)
+
+    def test_enabled_provisioning_loads_separate_verified_tls_settings(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DEVICEOPS_BROKER_PROVISIONING_ENABLED": "yes",
+                "DEVICEOPS_BROKER_PROVISIONING_HOST": "mqtt.example.test",
+                "DEVICEOPS_BROKER_PROVISIONING_PORT": "443",
+                "DEVICEOPS_BROKER_PROVISIONING_USERNAME": "dynsec-admin",
+                "DEVICEOPS_BROKER_PROVISIONING_PASSWORD": "test-only-password",
+                "DEVICEOPS_BROKER_PROVISIONING_TLS": "on",
+                "DEVICEOPS_BROKER_PROVISIONING_TIMEOUT_SECONDS": "7",
+            },
+            clear=True,
+        ):
+            configured = Settings.from_environment()
+
+        self.assertTrue(configured.broker_provisioning_enabled)
+        self.assertEqual(
+            configured.broker_provisioning_host, "mqtt.example.test"
+        )
+        self.assertEqual(configured.broker_provisioning_port, 443)
+        self.assertEqual(
+            configured.broker_provisioning_username, "dynsec-admin"
+        )
+        self.assertEqual(
+            configured.broker_provisioning_password, "test-only-password"
+        )
+        self.assertTrue(configured.broker_provisioning_tls)
+        self.assertEqual(configured.broker_provisioning_timeout_seconds, 7)
+
+    def test_enabled_provisioning_requires_host_username_and_password(self) -> None:
+        complete = {
+            "DEVICEOPS_BROKER_PROVISIONING_ENABLED": "true",
+            "DEVICEOPS_BROKER_PROVISIONING_HOST": "mqtt.example.test",
+            "DEVICEOPS_BROKER_PROVISIONING_USERNAME": "dynsec-admin",
+            "DEVICEOPS_BROKER_PROVISIONING_PASSWORD": "test-only-password",
+        }
+        for missing_name in (
+            "DEVICEOPS_BROKER_PROVISIONING_HOST",
+            "DEVICEOPS_BROKER_PROVISIONING_USERNAME",
+            "DEVICEOPS_BROKER_PROVISIONING_PASSWORD",
+        ):
+            environment = dict(complete)
+            environment.pop(missing_name)
+            with self.subTest(missing_name=missing_name):
+                with patch.dict(os.environ, environment, clear=True):
+                    with self.assertRaisesRegex(ValueError, missing_name):
+                        Settings.from_environment()
+
+    def test_provisioning_tls_uses_existing_boolean_parser(self) -> None:
+        environment = {
+            "DEVICEOPS_BROKER_PROVISIONING_ENABLED": "true",
+            "DEVICEOPS_BROKER_PROVISIONING_HOST": "mqtt.example.test",
+            "DEVICEOPS_BROKER_PROVISIONING_USERNAME": "dynsec-admin",
+            "DEVICEOPS_BROKER_PROVISIONING_PASSWORD": "test-only-password",
+        }
+        with patch.dict(
+            os.environ,
+            {**environment, "DEVICEOPS_BROKER_PROVISIONING_TLS": "off"},
+            clear=True,
+        ):
+            configured = Settings.from_environment()
+        self.assertFalse(configured.broker_provisioning_tls)
+
+        with patch.dict(
+            os.environ,
+            {**environment, "DEVICEOPS_BROKER_PROVISIONING_TLS": "invalid"},
+            clear=True,
+        ):
+            with self.assertRaises(ValueError):
+                Settings.from_environment()
 
 
 class MqttClientConfigurationTests(unittest.TestCase):

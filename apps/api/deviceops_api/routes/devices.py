@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -10,14 +11,21 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from ..broker_provisioning import (
+    BrokerProvisioningError,
+    BrokerProvisioningPartialFailure,
+    broker_device_provisioner,
+)
 from ..database import get_database_session
 from ..device_credentials import (
+    derive_broker_password_from_stored_hash,
     generate_device_id,
     generate_device_secret,
     hash_device_secret,
 )
 from ..events import create_device_event, event_created_message
 from ..models import Device, Telemetry, User
+from ..mqtt_auth import MqttAuthenticationError
 from ..ownership import get_owned_device_or_404
 from ..schemas import (
     CapabilityStateRead,
@@ -32,6 +40,7 @@ from ..realtime import realtime_hub
 
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
+logger = logging.getLogger(__name__)
 DatabaseSession = Annotated[Session, Depends(get_database_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
@@ -48,17 +57,30 @@ def register_device(
 ) -> DeviceRegistrationRead:
     device_id = generate_device_id()
     device_secret = generate_device_secret()
+    stored_secret_hash = hash_device_secret(device_secret)
+    broker_password = (
+        derive_broker_password_from_stored_hash(stored_secret_hash)
+        if broker_device_provisioner is not None
+        else None
+    )
     device = Device(
         device_id=device_id,
         owner_id=current_user.id,
-        device_secret_hash=hash_device_secret(device_secret),
+        device_secret_hash=stored_secret_hash,
         status="unknown",
         first_seen_at=None,
         last_seen_at=None,
     )
     session.add(device)
+    broker_provisioned = False
     try:
         session.flush()
+        if broker_device_provisioner is not None:
+            assert broker_password is not None
+            broker_device_provisioner.provision_device(
+                device.device_id, broker_password
+            )
+            broker_provisioned = True
         event = create_device_event(
             session,
             owner_id=current_user.id,
@@ -67,8 +89,44 @@ def register_device(
             occurred_at=datetime.now(timezone.utc),
         )
         session.commit()
+    except BrokerProvisioningError as exc:
+        session.rollback()
+        partial_failure = isinstance(exc, BrokerProvisioningPartialFailure)
+        if partial_failure:
+            logger.critical(
+                "Broker provisioning and cleanup failed during registration for device %s",
+                device_id,
+            )
+        else:
+            logger.error(
+                "Broker provisioning failed during registration for device %s",
+                device_id,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Device broker provisioning and cleanup failed"
+                if partial_failure
+                else "Device broker provisioning failed"
+            ),
+        ) from exc
     except SQLAlchemyError as exc:
         session.rollback()
+        if broker_provisioned:
+            try:
+                assert broker_device_provisioner is not None
+                broker_device_provisioner.revoke_device(device_id)
+            except BrokerProvisioningError as compensation_error:
+                logger.critical(
+                    "Device registration failed and broker cleanup failed for device %s",
+                    device_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=(
+                        "Device registration failed and broker cleanup failed"
+                    ),
+                ) from compensation_error
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Device registration failed",
@@ -132,11 +190,56 @@ def delete_device(
     current_user: CurrentUser,
 ) -> Response:
     device = get_owned_device_or_404(session, device_id, current_user.id)
-    session.delete(device)
+    broker_password: str | None = None
+    if broker_device_provisioner is not None:
+        try:
+            broker_password = derive_broker_password_from_stored_hash(
+                device.device_secret_hash or ""
+            )
+        except MqttAuthenticationError as exc:
+            logger.error(
+                "Stored device credential is invalid during deletion for device %s",
+                device_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Device deletion failed",
+            ) from exc
+        try:
+            broker_device_provisioner.revoke_device(device_id)
+        except BrokerProvisioningError as exc:
+            session.rollback()
+            logger.error(
+                "Broker revocation failed during deletion for device %s",
+                device_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Device broker revocation failed",
+            ) from exc
+
     try:
+        session.delete(device)
         session.commit()
     except SQLAlchemyError as exc:
         session.rollback()
+        if broker_device_provisioner is not None:
+            try:
+                assert broker_password is not None
+                broker_device_provisioner.provision_device(
+                    device_id, broker_password
+                )
+            except BrokerProvisioningError as compensation_error:
+                logger.critical(
+                    "Device deletion failed and broker restoration failed for device %s",
+                    device_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=(
+                        "Device deletion failed and broker restoration failed"
+                    ),
+                ) from compensation_error
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Device deletion failed",

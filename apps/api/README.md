@@ -104,8 +104,10 @@ same privacy-preserving 404 response.
 
 Deletion does not publish broker tombstones for retained status/capability
 messages. Those messages are harmless: ingestion rejects them after the device
-row is gone, and generated UUID device IDs are never reused. This keeps database
-deletion independent of broker availability.
+row is gone, and generated UUID device IDs are never reused. With broker
+provisioning disabled, deletion remains independent of broker availability. When
+provisioning is enabled, the Dynamic Security identity must be revoked before
+the database deletion commits; failure leaves the database device intact.
 
 ## Device capabilities
 
@@ -247,7 +249,11 @@ DeviceOps generates the device ID and a high-entropy device secret. Save the
 returned secret securely: its plaintext value is shown only in this creation
 response. The database stores its SHA-256 digest. A registered device remains
 `unknown` with null first/last-seen timestamps until authenticated device
-firmware connects.
+firmware connects. When optional broker provisioning is enabled, FastAPI derives
+a separate broker password from the raw signing-key bytes using
+`HMAC-SHA256(signing_key, "deviceops-broker-auth-v1")`. The derived password is
+sent only to Mosquitto Dynamic Security; it is not stored or returned as a
+second user-facing secret.
 
 ## Authenticated MQTT messages
 
@@ -465,6 +471,13 @@ CORS in addition to the JWT authentication above.
 | `DEVICEOPS_MQTT_USERNAME` | unset |
 | `DEVICEOPS_MQTT_PASSWORD` | unset |
 | `DEVICEOPS_MQTT_TLS` | `false` |
+| `DEVICEOPS_BROKER_PROVISIONING_ENABLED` | `false` |
+| `DEVICEOPS_BROKER_PROVISIONING_HOST` | unset |
+| `DEVICEOPS_BROKER_PROVISIONING_PORT` | `443` |
+| `DEVICEOPS_BROKER_PROVISIONING_USERNAME` | unset |
+| `DEVICEOPS_BROKER_PROVISIONING_PASSWORD` | unset |
+| `DEVICEOPS_BROKER_PROVISIONING_TLS` | `true` |
+| `DEVICEOPS_BROKER_PROVISIONING_TIMEOUT_SECONDS` | `5` |
 | `DEVICEOPS_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` |
 | `DEVICEOPS_AUTH_SECRET` | `deviceops-local-development-secret-must-be-overridden` |
 | `DEVICEOPS_AUTH_TOKEN_LIFETIME_SECONDS` | `86400` |
@@ -498,6 +511,26 @@ the operating system CA trust store with certificate-chain and hostname
 verification. Broker authentication is additional to, and does not replace,
 DeviceOps per-device HMAC message authentication. Remove the credential
 environment variables from the shell after stopping the API, as shown above.
+
+Broker provisioning is a separate administrative MQTT connection and is
+disabled by default. Disabled mode requires none of the provisioning settings,
+does not contact the Dynamic Security broker, and leaves anonymous local
+development on `localhost:1883` unchanged. Enabling it requires non-empty
+`DEVICEOPS_BROKER_PROVISIONING_HOST`,
+`DEVICEOPS_BROKER_PROVISIONING_USERNAME`, and
+`DEVICEOPS_BROKER_PROVISIONING_PASSWORD`. The provisioning port and timeout
+must be positive integers. TLS defaults to enabled and uses normal CA-chain and
+hostname verification; it is never configured in insecure mode.
+
+The provisioning identity is exclusively a Dynamic Security administrator. It
+must not reuse `DEVICEOPS_MQTT_USERNAME` or `DEVICEOPS_MQTT_PASSWORD`, which
+continue to configure the existing normal HiveMQ ingestion/command connection.
+Provisioning sends QoS 1 control requests to
+`$CONTROL/dynamic-security/v1`, waits for a matching correlated response on
+`$CONTROL/dynamic-security/v1/response`, creates a client whose username and
+client ID both equal `device_id`, and atomically assigns the existing
+`deviceops-device-v1` role at priority 10 through the `createClient` `roles`
+array. This API milestone does not create that role or change its ACLs.
 
 The backend uses one short synchronous SQLAlchemy session per HTTP request or
 MQTT message. A malformed message is logged and rejected without stopping the
