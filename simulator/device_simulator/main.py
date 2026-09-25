@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -19,6 +20,7 @@ import paho.mqtt.client as mqtt
 from .mqtt_auth import (
     MqttAuthenticationError,
     create_authenticated_envelope,
+    derive_broker_password,
     derive_signing_key,
     generate_session_id,
     parse_authenticated_envelope,
@@ -30,10 +32,21 @@ from .profiles import PROFILE_NAMES, SimulatorProfile, get_profile
 
 CONNECT_TIMEOUT_S = 10
 RECENT_COMMAND_LIMIT = 100
+HOSTED_BROKER_HOST = "mqtt.deviceops.net"
+HOSTED_BROKER_PORT = 443
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 COMMAND_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+
+
+@dataclass(frozen=True)
+class BrokerConnectionConfig:
+    host: str
+    port: int
+    tls: bool
+    username: str | None
+    password: str | None = field(repr=False)
 
 
 def reporting_interval(value: str) -> int:
@@ -66,7 +79,10 @@ def device_id(value: str) -> str:
 
 def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Publish simulated DeviceOps telemetry"
+        description=(
+            "Publish simulated DeviceOps telemetry (hosted by default; "
+            "use --local for the local Docker broker)"
+        )
     )
     parser.add_argument(
         "--device-id",
@@ -74,21 +90,31 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         required=True,
         help="registered DeviceOps device ID",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--local",
+        action="store_true",
+        help="use anonymous plaintext MQTT at localhost:1883",
+    )
+    mode.add_argument(
+        "--custom",
+        action="store_true",
+        help="use advanced --broker-* settings and optional MQTT credentials",
+    )
     parser.add_argument(
         "--broker-host",
-        default="localhost",
-        help="MQTT broker host (default: localhost)",
+        help="custom MQTT broker host (requires --custom)",
     )
     parser.add_argument(
         "--broker-port",
         type=broker_port,
-        default=1883,
-        help="MQTT broker TCP port (default: 1883)",
+        help="custom MQTT broker TCP port (default with --custom: 1883)",
     )
     parser.add_argument(
         "--tls",
-        action="store_true",
-        help="use verified TLS with the system CA trust store",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="enable or disable verified TLS (requires --custom)",
     )
     parser.add_argument(
         "--interval",
@@ -118,6 +144,59 @@ def broker_credentials_from_environment() -> tuple[str | None, str | None]:
             "must be configured together"
         )
     return username, password
+
+
+def resolve_broker_configuration(
+    args: argparse.Namespace,
+    device_secret: str,
+) -> BrokerConnectionConfig:
+    """Resolve one unambiguous hosted, local, or custom broker configuration."""
+    username, password = broker_credentials_from_environment()
+    has_broker_overrides = any(
+        value is not None
+        for value in (args.broker_host, args.broker_port, args.tls)
+    )
+
+    if args.local:
+        if has_broker_overrides:
+            raise ValueError(
+                "--local cannot be combined with --broker-host, "
+                "--broker-port, or --tls"
+            )
+        if username is not None:
+            raise ValueError(
+                "--local uses anonymous MQTT; remove DEVICEOPS_MQTT_USERNAME "
+                "and DEVICEOPS_MQTT_PASSWORD"
+            )
+        return BrokerConnectionConfig("localhost", 1883, False, None, None)
+
+    if args.custom:
+        if args.broker_host is None or not args.broker_host.strip():
+            raise ValueError("--custom requires a non-empty --broker-host")
+        return BrokerConnectionConfig(
+            args.broker_host.strip(),
+            args.broker_port if args.broker_port is not None else 1883,
+            args.tls is True,
+            username,
+            password,
+        )
+
+    if has_broker_overrides:
+        raise ValueError(
+            "--broker-host, --broker-port, and --tls require --custom"
+        )
+    if username is not None:
+        raise ValueError(
+            "hosted mode derives broker credentials from DEVICEOPS_DEVICE_SECRET; "
+            "remove DEVICEOPS_MQTT_USERNAME and DEVICEOPS_MQTT_PASSWORD"
+        )
+    return BrokerConnectionConfig(
+        HOSTED_BROKER_HOST,
+        HOSTED_BROKER_PORT,
+        True,
+        args.device_id,
+        derive_broker_password(device_secret),
+    )
 
 
 def configure_mqtt_transport(
@@ -483,7 +562,8 @@ def run(
             f"{broker_host}:{broker_port_value}: {exc}",
             file=sys.stderr,
         )
-        print("Start it with: docker compose up -d", file=sys.stderr)
+        if broker_host == "localhost":
+            print("Start it with: docker compose up -d", file=sys.stderr)
         return 1
 
     client.loop_start()
@@ -577,7 +657,7 @@ def main() -> None:
         )
         raise SystemExit(2)
     try:
-        broker_username, broker_password = broker_credentials_from_environment()
+        broker = resolve_broker_configuration(args, device_secret)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
@@ -587,12 +667,12 @@ def main() -> None:
         run(
             args.device_id,
             args.interval,
-            args.broker_host,
-            args.broker_port,
+            broker.host,
+            broker.port,
             device_secret,
             args.profile,
-            broker_tls=args.tls,
-            broker_username=broker_username,
-            broker_password=broker_password,
+            broker_tls=broker.tls,
+            broker_username=broker.username,
+            broker_password=broker.password,
         )
     )

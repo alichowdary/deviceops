@@ -29,14 +29,13 @@ in this repository with Python 3.14.5.
 
 ## Run
 
-Start the broker from the repository root, then run the simulator from this
-directory with the virtual environment activated. Register a device through the
-API first. Supply its one-time plaintext secret through the
-`DEVICEOPS_DEVICE_SECRET` environment variable; the simulator never prints it.
-Using `Read-Host` avoids putting the secret in PowerShell command history:
+Run the simulator from this directory with the virtual environment activated.
+Register a device at DeviceOps first. Supply its one-time plaintext secret
+through the `DEVICEOPS_DEVICE_SECRET` environment variable; the simulator never
+prints it. Using `Read-Host` avoids putting the secret in PowerShell command
+history:
 
 ```powershell
-docker compose up -d
 cd simulator
 .\.venv\Scripts\Activate.ps1
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
@@ -44,24 +43,40 @@ python -m device_simulator --device-id <registered-device-id>
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
-`--device-id` is required. The `default` profile, five-second telemetry interval,
-`localhost` broker host, and broker TCP port `1883` are used unless overridden:
+This default hosted mode connects to `mqtt.deviceops.net:443` with verified TLS.
+The MQTT username and client ID are the registered device ID. The simulator
+derives the broker password locally from the device secret; no separate MQTT
+password is requested, stored, or printed.
+
+`--device-id` is required. The `default` profile and five-second telemetry
+interval are used unless overridden.
+
+For reproducible local development, start the repository broker and select the
+explicit anonymous plaintext local mode:
 
 ```powershell
-python -m device_simulator --device-id <registered-device-id> --interval 2 --broker-host localhost --broker-port 1883
+docker compose up -d
+cd simulator
+.\.venv\Scripts\Activate.ps1
+$env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
+python -m device_simulator --device-id <registered-device-id> --local --interval 2
+Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
-The local Docker/Mosquitto stack is the reproducible public development path and
-uses anonymous plaintext MQTT. Production HiveMQ credentials are
-operator-managed secrets and are not supplied by this repository. An operator
-connecting the simulator to that broker reads those credentials into environment
-variables and opts in to verified TLS explicitly:
+The local Docker/Mosquitto stack remains anonymous plaintext MQTT at
+`localhost:1883`. Local mode rejects broker overrides and MQTT credential
+environment variables so it cannot silently become an authenticated remote
+connection.
+
+Advanced operators can select `--custom`, provide an explicit broker host, and
+optionally override the port, TLS, and paired MQTT credentials:
 
 ```powershell
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
-$env:DEVICEOPS_MQTT_USERNAME = Read-Host "HiveMQ username"
-$env:DEVICEOPS_MQTT_PASSWORD = Read-Host "HiveMQ password"
+$env:DEVICEOPS_MQTT_USERNAME = Read-Host "MQTT username"
+$env:DEVICEOPS_MQTT_PASSWORD = Read-Host "MQTT password"
 python -m device_simulator --device-id <registered-device-id> `
+  --custom `
   --broker-host <your-mqtt-broker-host> `
   --broker-port 8883 --tls
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
@@ -69,7 +84,8 @@ Remove-Item Env:DEVICEOPS_MQTT_USERNAME
 Remove-Item Env:DEVICEOPS_MQTT_PASSWORD
 ```
 
-`--tls` uses Python's system CA trust store and verifies both the broker
+Custom mode defaults to port 1883 without TLS. `--tls` uses Python's system CA
+trust store and verifies both the broker
 certificate chain and hostname. Broker username/password authentication does
 not replace the existing per-device HMAC envelope authentication. The simulator
 never prints either password.
@@ -105,7 +121,10 @@ The available profiles are:
 Run `python -m device_simulator --help` to see all CLI options.
 
 Startup fails before connecting if `DEVICEOPS_DEVICE_SECRET` is absent or empty,
-or if only one broker credential is configured.
+if only one custom broker credential is configured, or if hosted/local/custom
+options are combined ambiguously. Hosted mode rejects
+`DEVICEOPS_MQTT_USERNAME` and `DEVICEOPS_MQTT_PASSWORD` because it always derives
+the device's broker password from `DEVICEOPS_DEVICE_SECRET`.
 The secret is hashed locally to derive the MQTT signing key and is never sent in
 an MQTT payload.
 
@@ -135,8 +154,8 @@ retained `offline` envelope before disconnecting. If the process or network
 connection disappears without a clean disconnect, its authenticated MQTT Last
 Will makes the broker publish retained `offline`.
 
-If the broker is unavailable, the simulator exits with an error and reminds you
-how to start it.
+If the broker is unavailable, the simulator exits with an error. Local mode also
+reminds you how to start the Docker broker.
 
 ## Observe messages
 

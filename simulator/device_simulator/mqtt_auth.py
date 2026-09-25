@@ -15,6 +15,7 @@ MqttDirection = Literal["d2s", "s2d"]
 _ENVELOPE_FIELDS = {"auth_version", "session_id", "body", "signature"}
 _SESSION_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 _SIGNATURE_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_BROKER_AUTH_CONTEXT = b"deviceops-broker-auth-v1"
 
 
 class MqttAuthenticationError(ValueError):
@@ -34,6 +35,16 @@ def derive_signing_key(device_secret: str) -> bytes:
     if not device_secret:
         raise MqttAuthenticationError("device secret must not be empty")
     return hashlib.sha256(device_secret.encode("utf-8")).digest()
+
+
+def derive_broker_password(device_secret: str) -> str:
+    """Derive the domain-separated Mosquitto password from a device secret."""
+    signing_key = derive_signing_key(device_secret)
+    return hmac.new(
+        signing_key,
+        _BROKER_AUTH_CONTEXT,
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def generate_session_id() -> str:
