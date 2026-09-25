@@ -1,0 +1,8 @@
+# Never send local broker state or bootstrap material to a Docker/Fly builder.
+data/
+dynamic-security.json
+dynamic-security.json.*
+mosquitto.db
+*.pw
+.env
+.env.*

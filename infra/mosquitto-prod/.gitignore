@@ -1,0 +1,10 @@
+# Dynamic Security state and broker data must live on the volume, never in Git.
+data/
+dynamic-security.json
+dynamic-security.json.*
+mosquitto.db
+*.pw
+
+# Do not track local secret files used for manual testing.
+.env
+.env.*
