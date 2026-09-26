@@ -12,43 +12,87 @@ self-service product. A signed-in user can register a device and connect the
 simulator or compatible hardware directly with the returned device ID and
 one-time DeviceOps secret. The setup below is for local frontend development.
 
-## Requirements
+## Run the web console locally
 
-- Node.js 20.9 or newer
-- npm
-- The repository's local PostgreSQL, Mosquitto, and FastAPI services running
+### Step 1 — Install Node.js and npm
 
-## Install and configure
+Install Node.js 20.9 or newer from [nodejs.org](https://nodejs.org/). npm is the
+package manager included with Node.js. Verify both from PowerShell:
 
-From the repository root:
+```powershell
+node --version
+npm --version
+```
+
+### Step 2 — Start the local API
+
+Follow the [API local setup](../api/README.md#run-the-api-locally) first. Keep
+FastAPI, PostgreSQL, and Mosquitto running. Confirm that
+<http://127.0.0.1:8000/health> responds before continuing.
+
+### Step 3 — Enter the web folder
+
+From the repository root, run:
 
 ```powershell
 cd apps\web
+```
+
+`cd` means “change directory.”
+
+### Step 4 — Install dependencies
+
+```powershell
 npm ci
 ```
 
-The frontend defaults to `http://127.0.0.1:8000`. To use a different backend,
-copy the committed example and edit the local value:
+`npm ci` installs the exact dependency versions recorded in
+`package-lock.json`. It should finish without installation errors.
+
+### Step 5 — Configure a different API only if needed
+
+Skip this step when using the standard local API at `127.0.0.1:8000`. If your
+backend runs elsewhere, copy the committed example:
 
 ```powershell
 Copy-Item .env.example .env.local
 ```
+
+Then edit `.env.local`:
 
 ```text
 NEXT_PUBLIC_DEVICEOPS_API_URL=http://127.0.0.1:8000
 NEXT_PUBLIC_DEVICEOPS_WS_URL=ws://127.0.0.1:8000/ws
 ```
 
-`.env.local` is ignored by Git. The API's local CORS allowlist accepts
-`http://localhost:3000` and `http://127.0.0.1:3000` by default.
+`.env.local` is ignored by Git. The API's default CORS allowlist accepts
+`http://localhost:3000` and `http://127.0.0.1:3000`.
 
-## Run the frontend
+### Step 6 — Start Next.js
 
 ```powershell
 npm run dev
 ```
 
-Open <http://localhost:3000>. The root route is the public product overview,
+Keep this terminal open. Next.js should report that the application is ready.
+
+### Step 7 — Open the site
+
+Open <http://localhost:3000>. `localhost` means this computer.
+
+### Step 8 — Register or sign in
+
+Open the Login page, create a local account or sign in, and continue to Fleet.
+
+### Step 9 — Confirm it worked
+
+The public landing page should load, authentication should open Fleet, and the
+console should show the local API as healthy. You can now register a device and
+connect the simulator using the [local simulator instructions](../../simulator/README.md#local-mode).
+
+## Frontend behavior
+
+The root route is the public product overview,
 `/about` describes the architecture and implementation, `/login` provides
 registration and sign-in, `/fleet` is the protected device inventory, and
 `/getting-started` contains practical signed-in simulator and ESP32 onboarding.
@@ -121,7 +165,7 @@ accesses MQTT directly.
 
 ## Run the full local stack
 
-Use separate PowerShell terminals.
+Use separate PowerShell terminals, each opened at the repository root.
 
 Start Mosquitto and PostgreSQL from the repository root:
 
@@ -149,6 +193,9 @@ $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
 python -m device_simulator --device-id <registered-device-id> --local --interval 5
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
+
+Text inside `<...>` is a placeholder. Replace `<registered-device-id>` with the
+Device ID from Fleet and do not type the angle brackets.
 
 Start the frontend:
 

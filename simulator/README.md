@@ -10,59 +10,109 @@ existing behavior as the default. It also verifies and executes the supported
 version 1 commands documented in
 [`../contracts/mqtt.md`](../contracts/mqtt.md).
 
-## Install
+## Quick start: connect your first simulated device
 
-Install Git and Python 3.11 or newer. Clone the repository, then create an
-isolated virtual environment and install the simulator with its pinned Paho MQTT
-dependency:
+The normal path connects directly to hosted DeviceOps. MQTT is the lightweight
+messaging protocol the simulator uses to exchange data and commands with
+DeviceOps.
+
+### Step 1 — Install prerequisites
+
+Install [Git](https://git-scm.com/downloads) and Python 3.11 or newer. Open
+PowerShell and confirm both commands work:
+
+```powershell
+git --version
+python --version
+```
+
+The second command should report Python 3.11 or newer.
+
+### Step 2 — Clone DeviceOps
+
+Run:
 
 ```powershell
 git clone https://github.com/alichowdary/deviceops.git
-cd deviceops\simulator
+cd deviceops
+```
+
+`cd` means “change directory.” After these commands, PowerShell is working from
+the downloaded repository folder.
+
+### Step 3 — Create a DeviceOps account
+
+Open [deviceops.net](https://deviceops.net), create an account, and sign in. Open
+**Fleet** after authentication.
+
+### Step 4 — Register a device
+
+In Fleet, select **Add device**. You may give it a friendly name. Copy both the
+generated Device ID and the one-time DeviceOps secret before closing the dialog.
+
+The Device ID identifies this device. The secret proves that the simulator is
+allowed to connect as that device. There is no second MQTT password to copy.
+
+### Step 5 — Install the simulator
+
+From the repository root, run:
+
+```powershell
+cd simulator
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Paho MQTT 2.1.0 declares Python 3.7 or newer and provides a universal Python 3
-wheel. This simulator is configured for Python 3.11 or newer and has been tested
-in this repository with Python 3.14.5.
+`.venv` is an isolated Python environment for this project. Once activated,
+Python packages installed in this terminal stay separate from other projects.
 
-## Hosted quick start
+### Step 6 — Start the simulator
 
-1. Create an account at [deviceops.net](https://deviceops.net).
-2. Open Fleet, select **Add device**, and copy the generated device ID and
-   one-time DeviceOps secret before closing the dialog.
-3. Complete the [installation](#install), then run the following commands from
-   the repository root. `Read-Host` keeps the secret out of PowerShell history:
+Run these commands from the `simulator` folder with `.venv` active:
 
 ```powershell
-cd simulator
-.\.venv\Scripts\Activate.ps1
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
 python -m device_simulator --device-id <registered-device-id>
+```
+
+Text inside `<...>` is a placeholder. Replace it with your own value and do not
+type the angle brackets. Here, replace `<registered-device-id>` with the Device
+ID copied from Fleet. `Read-Host` asks for the secret privately instead of
+placing it directly in your shell history.
+
+Hosted mode connects to `mqtt.deviceops.net:443` with verified TLS. The
+simulator derives its broker password locally from the DeviceOps secret.
+
+### Step 7 — Confirm it worked
+
+The terminal should report a successful MQTT connection and begin printing
+telemetry. In Fleet, open the device and confirm that it becomes **Online** and
+that readings begin appearing.
+
+The `default` profile publishes every five seconds unless you choose another
+interval.
+
+### Step 8 — Stop the simulator
+
+Press Ctrl+C for a clean shutdown, then remove the secret from this PowerShell
+session:
+
+```powershell
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
 
-This default hosted mode connects to `mqtt.deviceops.net:443` with verified TLS.
-The MQTT username and client ID are the registered device ID. The simulator
-derives the broker password locally from the device secret; no separate MQTT
-password is requested, stored, or printed.
-
-`--device-id` is required. The `default` profile and five-second telemetry
-interval are used unless overridden.
-
-4. Keep the process running and open the new device in Fleet. Its status should
-   become Online and telemetry should begin updating. Press Ctrl+C to publish a
-   clean offline status, then remove the secret from the shell as shown above.
+Removing the environment variable prevents a later command in the same terminal
+from accidentally reusing the device secret.
 
 ## Local and custom brokers
 
 ### Local mode
 
-For reproducible local development, start the repository broker and select the
-explicit anonymous plaintext local mode:
+For reproducible local development, open a new PowerShell terminal at the
+repository root. Start the repository broker, then enter the simulator folder
+and select the explicit anonymous plaintext local mode:
 
 ```powershell
 docker compose up -d
@@ -82,6 +132,8 @@ connection.
 
 Advanced operators can select `--custom`, provide an explicit broker host, and
 optionally override the port, TLS, and paired MQTT credentials:
+
+Run this from the `simulator` folder with `.venv` active:
 
 ```powershell
 $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
@@ -171,7 +223,8 @@ reminds you how to start the Docker broker.
 
 ## Observe messages
 
-These commands use the MQTT tools inside the existing Mosquitto container:
+From the repository root, these commands use the MQTT tools inside the existing
+Mosquitto container:
 
 ```powershell
 docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -p 1883 -t "deviceops/v1/devices/+/telemetry" -v

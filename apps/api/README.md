@@ -6,9 +6,27 @@ command history, and meaningful
 fleet activity in PostgreSQL, publishes validated operator commands, and
 broadcasts newly committed updates at `/ws`.
 
-## Local setup
+## Run the API locally
 
-From the repository root, start Mosquitto and PostgreSQL:
+PostgreSQL is the database that stores DeviceOps state. Mosquitto is the local
+MQTT broker—the message relay between devices and FastAPI.
+
+### Step 1 — Install prerequisites
+
+Install Docker Desktop and Python 3.11 or newer. Open PowerShell and verify:
+
+```powershell
+docker --version
+python --version
+```
+
+Start Docker Desktop and wait until it reports that the Docker engine is
+running.
+
+### Step 2 — Start PostgreSQL and Mosquitto
+
+Open PowerShell in the repository root—the folder containing
+`docker-compose.yml`—and run:
 
 ```powershell
 docker compose config
@@ -16,29 +34,89 @@ docker compose up -d
 docker compose ps
 ```
 
-The Compose defaults are deliberately local development credentials:
-database `deviceops`, user `deviceops`, and password `deviceops-local`. PostgreSQL
-is bound to `127.0.0.1:5432`, and its data persists in the `postgres_data` volume.
-The values can be overridden with `POSTGRES_DB`, `POSTGRES_USER`, and
-`POSTGRES_PASSWORD`; set `DEVICEOPS_DATABASE_URL` to the matching SQLAlchemy URL
-when overriding them.
+`docker compose ps` should list both `postgres` and `mosquitto` as running.
 
-Create an isolated backend environment and install its pinned dependencies:
+### Step 3 — Enter the API folder
 
 ```powershell
 cd apps\api
+```
+
+`cd` means “change directory.” The remaining commands in this quick start run
+from `apps/api`.
+
+### Step 4 — Create a Python environment
+
+```powershell
 python -m venv .venv
+```
+
+`.venv` is an isolated Python environment for this project, so its packages do
+not interfere with other Python projects.
+
+### Step 5 — Activate the environment
+
+```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+The PowerShell prompt normally gains a `(.venv)` prefix.
+
+### Step 6 — Install the API
+
+```powershell
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Apply the database migrations, then start FastAPI:
+The editable install makes the local `deviceops_api` package and its pinned
+dependencies available inside `.venv`.
+
+### Step 7 — Apply database migrations
 
 ```powershell
 python -m alembic upgrade head
+```
+
+Alembic is the database migration tool. This command creates or updates the
+local PostgreSQL tables to the current schema.
+
+### Step 8 — Start FastAPI
+
+```powershell
 python -m uvicorn deviceops_api.main:app --host 127.0.0.1 --port 8000
 ```
+
+Uvicorn is the server process that runs FastAPI. Keep this terminal open.
+`127.0.0.1`, also called `localhost`, means this computer.
+
+### Step 9 — Check API health
+
+Open <http://127.0.0.1:8000/health> in a browser, or use another PowerShell
+terminal:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+The response may briefly be `degraded` while the MQTT subscriber connects. With
+both Docker services running, it should settle on `status: ok`, with `database`
+and `mqtt` both `up`.
+
+### Step 10 — Continue with the web console
+
+Leave the API running and follow the [web console guide](../web/README.md). To
+connect a local device afterward, follow the
+[simulator guide](../../simulator/README.md) and use its `--local` mode.
+
+## Local runtime details
+
+The Compose defaults are deliberately local development credentials: database
+`deviceops`, user `deviceops`, and password `deviceops-local`. PostgreSQL is
+bound to `127.0.0.1:5432`, and its data persists in the `postgres_data` volume.
+The values can be overridden with `POSTGRES_DB`, `POSTGRES_USER`, and
+`POSTGRES_PASSWORD`; set `DEVICEOPS_DATABASE_URL` to the matching SQLAlchemy URL
+when overriding them.
 
 FastAPI starts the MQTT subscriber through its application lifespan and stops it
 on shutdown. If MQTT is unavailable, the API remains available with a degraded
@@ -54,9 +132,10 @@ starts one retention cleanup shortly after startup and repeats it hourly.
 
 ## Run a device
 
-In another PowerShell terminal, use the environment from the
-[simulator setup guide](../../simulator/README.md). Register a device first,
-then supply its one-time plaintext secret without placing it in shell history:
+In another PowerShell terminal opened at the repository root, use the
+environment from the [simulator setup guide](../../simulator/README.md).
+Register a device first, then supply its one-time plaintext secret without
+placing it in shell history:
 
 ```powershell
 cd simulator
@@ -65,6 +144,10 @@ $env:DEVICEOPS_DEVICE_SECRET = Read-Host "Registered device secret"
 python -m device_simulator --device-id <registered-device-id> --local --interval 5
 Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 ```
+
+Text inside `<...>` is a placeholder. Replace it with your own value and do not
+type the angle brackets. Use the Device ID copied from Fleet in place of
+`<registered-device-id>`.
 
 `--local` is required here because this API instance is consuming the local
 Mosquitto listener. Omit it only when both the simulator and API are deliberately
@@ -544,10 +627,11 @@ MQTT message. A malformed message is logged and rejected without stopping the
 subscriber. MQTT ingestion remains in the API process; separating it would be
 required for independent horizontal scaling.
 
-Stop FastAPI with Ctrl+C. Stop local infrastructure without deleting stored data:
+Stop FastAPI with Ctrl+C. From `apps/api`, stop local infrastructure without
+deleting stored data:
 
 ```powershell
-docker compose down
+docker compose -f ..\..\docker-compose.yml down
 ```
 
 ## Tests
@@ -568,5 +652,5 @@ credentials and must never be pointed at production.
 To deliberately reset the development database, remove its volume:
 
 ```powershell
-docker compose down --volumes
+docker compose -f ..\..\docker-compose.yml down --volumes
 ```

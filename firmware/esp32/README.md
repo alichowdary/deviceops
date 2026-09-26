@@ -11,113 +11,171 @@ DeviceOps does not require this board or sensor and does not automatically
 discover hardware. Application firmware still initializes and reads its own
 sensors, converts units, declares capabilities, and performs command effects.
 
-## A. Run the BME280 reference device
+## Quick start: run the reference ESP32 device
 
-### Hardware
+### Step 1 — Gather the hardware
 
-- ESP32-S3 development board compatible with `esp32-s3-devkitc-1`
-- BME280 at I2C address `0x76`
-- Onboard WS2812 RGB LED on GPIO 48 for the verified board
+You need:
 
-| BME280 | ESP32-S3 |
+- an ESP32-S3 development board compatible with `esp32-s3-devkitc-1`;
+- a BME280 environmental sensor configured at I2C address `0x76`;
+- four jumper wires; and
+- a USB data cable. Some USB cables provide power only and cannot upload code.
+
+The verified board also provides an onboard WS2812 RGB LED on GPIO 48.
+
+### Step 2 — Wire the BME280
+
+Unplug USB power before changing wires. I2C is the two-wire connection used here
+for the environmental sensor.
+
+| BME280 pin | Connect to ESP32-S3 |
 | --- | --- |
 | VCC | 3.3V |
 | GND | GND |
 | SDA | GPIO 8 |
 | SCL | GPIO 9 |
 
-### Prerequisites and project setup
+### Step 3 — Install the software
 
-Install Git, [Visual Studio Code with the PlatformIO IDE
-extension](https://platformio.org/install/ide?install=vscode), or standalone
-[PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html).
-Clone the repository and open `firmware/esp32` as the PlatformIO project:
+Install:
+
+- [Git](https://git-scm.com/downloads);
+- [Visual Studio Code](https://code.visualstudio.com/); and
+- the [PlatformIO IDE extension](https://platformio.org/install/ide?install=vscode).
+
+PlatformIO builds the firmware and uploads it to the ESP32. Advanced users may
+instead install standalone [PlatformIO
+Core](https://docs.platformio.org/en/latest/core/installation/index.html).
+
+### Step 4 — Clone the repository
+
+Open PowerShell and run:
 
 ```powershell
 git clone https://github.com/alichowdary/deviceops.git
 cd deviceops
 ```
 
-### Hosted DeviceOps setup
+`cd` means “change directory.” In VS Code, open the `firmware/esp32` folder as
+the PlatformIO project.
 
-Register a device in the DeviceOps console and save its Device ID and one-time
-DeviceOps secret. Create the ignored local header:
+### Step 5 — Register a DeviceOps device
+
+Open [deviceops.net](https://deviceops.net), sign in, open **Fleet**, and select
+**Add device**. Optionally enter a friendly name. Copy the Device ID and one-time
+DeviceOps secret before closing the dialog. The ID identifies the board; the
+secret proves that it may connect. There is no second MQTT password to copy.
+
+### Step 6 — Create `secrets.h`
+
+From the repository root, run:
 
 ```powershell
 cd firmware\esp32
 Copy-Item include\secrets.example.h include\secrets.h
 ```
 
-Set only these values in `include/secrets.h`:
+Open `include/secrets.h` and replace the four placeholder values:
 
-- `WIFI_SSID`
-- `WIFI_PASSWORD`
-- `DEVICE_ID`
-- `DEVICE_SECRET`
-
-Do not commit that file. Hosted mode automatically uses:
-
-- `mqtt.deviceops.net:443`
-- verified TLS with the ISRG Root X1 CA
-- the Device ID as MQTT username and client ID
-- a broker password derived locally from the one-time DeviceOps secret
-
-There is no second MQTT credential. The firmware never prints the device
-secret, signing key, or derived broker password.
-
-### Build, upload, and monitor
-
-The commands below use the executable from a standard Windows Core installation;
-`pio` is equivalent when it is on PATH.
-
-```powershell
-cd firmware\esp32
-C:\Users\HP\.platformio\penv\Scripts\pio.exe run
-C:\Users\HP\.platformio\penv\Scripts\pio.exe run --target upload
-C:\Users\HP\.platformio\penv\Scripts\pio.exe device monitor --baud 115200
+```cpp
+constexpr char WIFI_SSID[] = "YOUR_WIFI_SSID";
+constexpr char WIFI_PASSWORD[] = "YOUR_WIFI_PASSWORD";
+constexpr char DEVICE_ID[] = "YOUR_REGISTERED_DEVICE_ID";
+constexpr char DEVICE_SECRET[] = "YOUR_ONE_TIME_DEVICE_SECRET";
 ```
 
-Do not upload firmware that still has placeholders. The upload and monitor port
-can be passed explicitly if PlatformIO finds more than one serial device.
+Use your Wi-Fi network name and password plus the Device ID and secret copied
+from Fleet. Do not commit `secrets.h`; Git intentionally ignores it.
 
-### Expected behavior and verification
+### Step 7 — Build the firmware
 
-On boot, the reference application runs deterministic authentication test
-vectors, joins Wi-Fi, obtains valid UTC time, and connects to
-`mqtt.deviceops.net:443` with verified TLS. The serial monitor should include
-`MQTT auth self-test: PASS`, `Wi-Fi connected.`, `UTC clock synchronized.`,
-`MQTT connected.`, and telemetry summaries without printing credentials. In
-DeviceOps, the device should become Online, advertise its BME280/RSSI/uptime
-capabilities, and begin publishing samples.
+From `firmware/esp32`, run:
 
-The LED, reporting-interval, and diagnostics controls appear because the
-reference application registers them. A command remains pending in the console
-until this firmware validates it, applies the effect, and publishes an ACK.
+```powershell
+pio run
+```
 
-Test the LED, reporting-interval, and diagnostics controls from Device Detail
-and confirm each leaves `pending` only after a succeeded or failed ACK. To test
-the MQTT Last Will, interrupt power or network connectivity while the device is
-Online instead of performing a clean shutdown. After the broker detects the
-lost connection, DeviceOps should commit the retained offline status. Reconnect
-or reboot the board to start a new live session.
+A successful build ends with `SUCCESS`. Do not continue if the file still
+contains placeholder credentials.
+
+### Step 8 — Connect the board
+
+Connect the ESP32-S3 with a data-capable USB cable. PlatformIO should detect its
+serial port. If Windows reports a new COM port, that is the board connection.
+
+### Step 9 — Upload the firmware
+
+Run:
+
+```powershell
+pio run --target upload
+```
+
+A successful upload ends with `SUCCESS`; the board then resets and starts the
+firmware.
+
+### Step 10 — Open the serial monitor
+
+Run:
+
+```powershell
+pio device monitor --baud 115200
+```
+
+Expected output includes:
+
+- `MQTT auth self-test: PASS`
+- `BME280 initialized.`
+- `Wi-Fi connected.`
+- `UTC clock synchronized.`
+- `MQTT mode: hosted DeviceOps with verified TLS`
+- `MQTT connected.`
+- `Published retained ONLINE status.`
+- recurring telemetry summaries
+
+### Step 11 — Check DeviceOps
+
+Open [deviceops.net](https://deviceops.net), go to Fleet, and select the device.
+Confirm that it is **Online** and that telemetry cards, samples, and numeric
+charts begin updating.
+
+### Step 12 — Test commands
+
+From Device Detail, test LED ON, LED OFF, a new reporting interval, and a
+diagnostics request. An ACK is an acknowledgement: the device tells DeviceOps
+whether the command actually succeeded or failed. A command remains `pending`
+until that ACK is validated and stored.
+
+### Step 13 — Test offline detection
+
+While the device is Online, unplug it and wait for DeviceOps to show it as
+Offline. Reconnect it and confirm that it becomes Online again. MQTT Last Will
+is the broker feature that publishes the saved offline message when a device
+disconnects unexpectedly.
 
 ### Troubleshooting
 
+- **`pio` is not recognized:** restart VS Code after installing PlatformIO or
+  use its built-in terminal. On Windows, the fallback is
+  `& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" run`.
 - **Build cannot find `secrets.h`:** copy `include/secrets.example.h` to
-  `include/secrets.h`; keep the copy untracked.
-- **Upload port is ambiguous or unavailable:** disconnect other serial boards or
-  pass `--upload-port <port>` to the upload command.
-- **Wi-Fi never connects:** verify the SSID/password and that the board can use
-  that network. The reference application owns Wi-Fi policy.
-- **TLS/MQTT connection fails:** verify the board has internet access, the device
-  ID and one-time secret belong to the same current registration, and UTC sync
-  succeeds. Hosted TLS cannot be disabled.
-- **BME280 is not detected:** recheck 3.3 V, ground, GPIO 8/9, and address
-  `0x76`.
-- **Local broker is unreachable:** use the development computer's LAN address,
-  not `localhost`, and allow inbound TCP 1883 on the trusted local network.
+  `include/secrets.h` and keep the copy untracked.
+- **Upload port is ambiguous or unavailable:** try another data-capable USB
+  cable, close other serial monitors, or add `--upload-port <port>`. Text inside
+  `<...>` is a placeholder; replace it with the detected COM port and do not
+  type the angle brackets.
+- **BME280 is not detected:** unplug power and recheck 3.3 V, GND, GPIO 8/9, and
+  address `0x76`.
+- **Wi-Fi never connects:** verify the SSID and password and confirm the ESP32
+  can use that network.
+- **TLS/MQTT connection fails:** confirm internet access, valid UTC time, and
+  that the Device ID and secret belong to the same current registration. Hosted
+  TLS cannot be disabled.
+- **Local broker is unreachable:** use the development computer's LAN IP, not
+  `localhost`. A LAN IP identifies that computer on the local network.
 
-## B. Use DeviceOpsClient in your own ESP32 project
+## Use DeviceOpsClient in your own ESP32 project
 
 The reusable client is documented in
 [`lib/DeviceOpsClient/README.md`](lib/DeviceOpsClient/README.md). The sections

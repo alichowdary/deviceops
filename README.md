@@ -2,10 +2,14 @@
 
 [![CI](https://github.com/alichowdary/deviceops/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alichowdary/deviceops/actions/workflows/ci.yml?query=branch%3Amain)
 
-DeviceOps is a hosted IoT fleet management and observability platform. Devices
-connect over an authenticated, versioned MQTT protocol; FastAPI validates and
-commits their data to PostgreSQL; and a Next.js console presents live fleet
-state, telemetry, commands, events, and alerts.
+DeviceOps is a web platform for monitoring and controlling IoT devices from one
+dashboard. Connected devices can send sensor readings, report whether they are
+online, receive commands, and trigger alerts.
+
+Behind the scenes, devices communicate with DeviceOps through MQTT, a
+lightweight messaging protocol commonly used by IoT devices. FastAPI validates
+and stores their data in PostgreSQL, while a Next.js web app shows the fleet in
+real time.
 
 - [Live product](https://deviceops.net)
 - [Technical overview](https://deviceops.net/about)
@@ -21,25 +25,25 @@ state, telemetry, commands, events, and alerts.
 _This Air Sensor example advertises only CO₂, VOC index, occupancy, and
 air-quality telemetry._
 
-## Why DeviceOps
+## What DeviceOps can do
 
-- Per-user device ownership with one-time registration secrets.
-- Per-device broker credentials plus HMAC-signed MQTT envelopes.
-- Capability-driven scalar telemetry, charts, table columns, controls, and
-  alert-rule choices.
-- REST snapshots followed by authenticated WebSocket updates from committed
-  backend state.
-- Closed-loop commands that remain pending until the device sends a valid
-  acknowledgement.
-- Persistent fleet events and metric-threshold or offline-duration alerts.
-- A reusable ESP32 `DeviceOpsClient`, a Python simulator, and an ESP32-S3 +
-  BME280 reference application.
+- See which devices are online, offline, or have not connected yet.
+- View current sensor readings, historical charts, and recent samples.
+- Send supported remote commands and track whether each device acknowledged
+  success or failure.
+- Create alerts for sensor thresholds or devices that remain offline.
+- Use one dashboard with different device types; each device describes the
+  readings and controls it supports.
+- Connect without hardware through the Python simulator, or integrate an ESP32
+  using the reusable `DeviceOpsClient` and reference application.
 
 ## Architecture
 
-The browser never connects to MQTT. FastAPI owns MQTT ingestion and command
-publishing, validates device messages, commits state, and then sends
-owner-scoped updates to the console.
+Devices exchange messages with an MQTT broker, which passes sensor data and
+commands between devices and the backend. The browser does not connect to MQTT
+directly. FastAPI validates each device message and stores accepted data in
+PostgreSQL. The Next.js browser first loads saved data through REST, then
+receives new committed updates through an authenticated WebSocket connection.
 
 ```text
 Device / simulator -> mqtt.deviceops.net -> Mosquitto -> FastAPI -> PostgreSQL
@@ -71,11 +75,16 @@ the production broker.
 
 ## Capability-driven devices
 
-A compatible DeviceOps v1 device publishes a signed, retained capability
-manifest. Telemetry descriptors support `number`, `integer`, `boolean`, and
-`string` values. The console renders labels, units, ordering, charts, columns,
-controls, and alert choices from that manifest rather than from a sensor-specific
-schema.
+Instead of assuming every device has the same sensors, each device tells
+DeviceOps what data it sends and which controls it supports. This lets the same
+dashboard work with different kinds of hardware without hard-coding a page for
+every sensor.
+
+Technically, a compatible DeviceOps v1 device publishes this description as a
+signed, retained capability manifest. Its telemetry descriptors support
+`number`, `integer`, `boolean`, and `string` values. The console uses the
+manifest's labels, units, ordering, and types to create charts, columns,
+controls, and alert choices.
 
 The `air-quality` simulator profile demonstrates the model with `co2_ppm`,
 `voc_index`, `occupied`, and `air_quality`. The verified simulator and reference
@@ -84,12 +93,16 @@ devices are compatible when they implement that contract.
 
 ## Device identity and security
 
-Each registration creates a stable device ID and a one-time secret. The device
-derives separate message-signing and broker credentials locally; users do not
-manage an additional MQTT password. FastAPI stores the derived signing key and
-uses a separate Dynamic Security administrator identity to provision or revoke
-the device's restricted Mosquitto client. Hosted traffic uses verified TLS, and
-DeviceOps messages are HMAC-authenticated and bound to a boot/process session.
+When you register a device, DeviceOps gives it a unique ID and a one-time
+secret. The device uses that secret to prove its identity when connecting and
+sending data.
+
+The device derives separate message-signing and broker credentials from the
+secret locally, so users do not manage an additional MQTT password. FastAPI
+stores the derived signing key and uses a separate Dynamic Security
+administrator identity to provision or revoke the device's restricted
+Mosquitto client. Hosted traffic uses verified TLS. DeviceOps messages are
+authenticated with HMAC signatures and tied to a boot/process session.
 
 ## Run a device
 
