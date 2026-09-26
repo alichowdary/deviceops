@@ -47,8 +47,10 @@ Open [deviceops.net](https://deviceops.net), create an account, and sign in. Ope
 
 ### Step 4 — Register a device
 
-In Fleet, select **Add device**. You may give it a friendly name. Copy both the
-generated Device ID and the one-time DeviceOps secret before closing the dialog.
+In Fleet, select **Add device** and generate the registration. Copy both the
+Device ID and the one-time DeviceOps secret before closing the dialog. After
+registration, you may open the device from Fleet and use **Rename** on Device
+Detail to assign a friendly display name.
 
 The Device ID identifies this device. The secret proves that the simulator is
 allowed to connect as that device. There is no second MQTT password to copy.
@@ -106,6 +108,48 @@ Remove-Item Env:DEVICEOPS_DEVICE_SECRET
 Removing the environment variable prevents a later command in the same terminal
 from accidentally reusing the device secret.
 
+## Try different device profiles
+
+The simulator can pretend to be different kinds of devices. Each profile
+advertises different metrics and controls, which lets you see DeviceOps build
+the interface from the device's capability manifest.
+
+Run these commands from the `simulator` folder with `.venv` active and the
+`DEVICEOPS_DEVICE_SECRET` environment variable set as shown above. If you
+removed it in Step 8, run the `Read-Host` command from Step 6 again first.
+
+### Default
+
+No profile flag is required:
+
+```powershell
+python -m device_simulator --device-id <registered-device-id>
+```
+
+It publishes temperature, battery, RSSI, and uptime. It supports LED, reporting
+interval, and diagnostics commands.
+
+### Portable sensor
+
+```powershell
+python -m device_simulator --device-id <registered-device-id> --profile portable-sensor
+```
+
+It publishes temperature, battery, ambient light, motion, RSSI, and uptime. It
+supports diagnostics.
+
+### Air quality
+
+```powershell
+python -m device_simulator --device-id <registered-device-id> --profile air-quality
+```
+
+It publishes CO₂, VOC index, occupied state, and air quality. It supports
+diagnostics.
+
+Numeric metrics receive charts and can be used for threshold alerts. Boolean
+and string values remain visible without being treated as numeric chart data.
+
 ## Local and custom brokers
 
 ### Local mode
@@ -153,34 +197,6 @@ trust store and verifies both the broker
 certificate chain and hostname. Broker username/password authentication does
 not replace the existing per-device HMAC envelope authentication. The simulator
 never prints either password.
-
-Choose the alternate portable sensor with `--profile portable-sensor`:
-
-```powershell
-python -m device_simulator --device-id <registered-device-id> --profile portable-sensor
-```
-
-To exercise a device with no historical first-class telemetry fields, use the
-air-quality profile:
-
-```powershell
-python -m device_simulator --device-id <registered-device-id> --profile air-quality
-```
-
-The available profiles are:
-
-- `default`: preserves the original simulator behavior. It emits temperature,
-  battery, RSSI, and uptime, and supports LED, reporting-interval, and
-  diagnostics commands.
-- `portable-sensor`: emits temperature, battery, ambient light, motion state,
-  RSSI, and uptime. It supports diagnostics only. Ambient light and motion are
-  additional protocol metrics; motion is boolean and therefore is not charted
-  by the capability-driven console.
-- `air-quality`: emits only dynamic `co2_ppm`, `voc_index`, `occupied`, and
-  `air_quality` metrics. It supports diagnostics only. CO₂ and VOC index are
-  charted numeric values; occupied and air quality are displayed as boolean and
-  string values without numeric charts. It deliberately emits none of the six
-  historical first-class metric names.
 
 Run `python -m device_simulator --help` to see all CLI options.
 

@@ -61,6 +61,9 @@ export default function GettingStartedPage() {
             <li>Generate the device registration.</li>
             <li>Keep the credential dialog open until both returned values are saved.</li>
           </ol>
+          <p className="setup-protocol-note">
+            After registration, open the device from Fleet and use <strong>Rename</strong> on Device Detail if you want a friendly display name.
+          </p>
         </section>
 
         <section className="panel setup-section">
@@ -85,6 +88,9 @@ export default function GettingStartedPage() {
               <div className="setup-tags"><span>Recommended</span><span>No hardware</span></div>
               <p>With the simulator environment installed, run:</p>
               <pre><code>{simulatorCommand}</code></pre>
+              <p className="setup-protocol-note">
+                Want to see the capability-driven UI adapt? Try <code>--profile portable-sensor</code> or <code>--profile air-quality</code> after the default run.
+              </p>
               <p>
                 Hosted mode automatically uses mqtt.deviceops.net:443, verified TLS,
                 the device ID as its MQTT identity, and a broker password derived

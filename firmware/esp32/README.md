@@ -63,9 +63,11 @@ the PlatformIO project.
 ### Step 5 — Register a DeviceOps device
 
 Open [deviceops.net](https://deviceops.net), sign in, open **Fleet**, and select
-**Add device**. Optionally enter a friendly name. Copy the Device ID and one-time
+**Add device** to generate the registration. Copy the Device ID and one-time
 DeviceOps secret before closing the dialog. The ID identifies the board; the
 secret proves that it may connect. There is no second MQTT password to copy.
+After registration, you may open the device from Fleet and use **Rename** on
+Device Detail to assign a friendly display name.
 
 ### Step 6 — Create `secrets.h`
 
