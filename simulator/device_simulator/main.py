@@ -219,6 +219,17 @@ def configure_mqtt_transport(
         client.tls_insecure_set(False)
 
 
+def telemetry_publish_completed(result_code: int) -> bool:
+    """Return false for a transient disconnect and reject other publish errors."""
+    if result_code == mqtt.MQTT_ERR_SUCCESS:
+        return True
+    if result_code == mqtt.MQTT_ERR_NO_CONN:
+        return False
+    raise RuntimeError(
+        f"telemetry publish failed: {mqtt.error_string(result_code)}"
+    )
+
+
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"
@@ -496,6 +507,21 @@ def run(
                 publish_capabilities(_client)
         subscribed.set()
 
+    def on_disconnect(
+        _client: mqtt.Client,
+        _userdata: object,
+        _disconnect_flags: mqtt.DisconnectFlags,
+        reason_code: mqtt.ReasonCode,
+        _properties: mqtt.Properties | None,
+    ) -> None:
+        subscribed.clear()
+        if reason_code.is_failure:
+            print(
+                f"MQTT disconnected: {reason_code}; waiting to reconnect",
+                file=sys.stderr,
+                flush=True,
+            )
+
     def on_message(
         _client: mqtt.Client,
         _userdata: object,
@@ -545,6 +571,7 @@ def run(
             )
 
     client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
     client.on_subscribe = on_subscribe
     client.on_message = on_message
 
@@ -595,6 +622,8 @@ def run(
 
     try:
         while True:
+            if not subscribed.wait(timeout=1):
+                continue
             payload = generator.next_message()
             with state_changed:
                 command_state.last_metrics = dict(payload["metrics"])
@@ -612,10 +641,9 @@ def run(
                 qos=0,
                 retain=False,
             )
-            if result.rc != mqtt.MQTT_ERR_SUCCESS:
-                raise RuntimeError(
-                    f"telemetry publish failed: {mqtt.error_string(result.rc)}"
-                )
+            if not telemetry_publish_completed(result.rc):
+                subscribed.clear()
+                continue
 
             metrics = payload["metrics"]
             rendered_metrics = " ".join(

@@ -10,6 +10,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+import paho.mqtt.client as mqtt
+
 from device_simulator.main import (
     HOSTED_BROKER_HOST,
     HOSTED_BROKER_PORT,
@@ -18,6 +20,7 @@ from device_simulator.main import (
     parse_args,
     resolve_broker_configuration,
     run,
+    telemetry_publish_completed,
 )
 from device_simulator.mqtt_auth import derive_broker_password
 
@@ -230,6 +233,12 @@ class SimulatorMqttConfigurationTests(unittest.TestCase):
         client.username_pw_set.assert_not_called()
         client.tls_set.assert_not_called()
         client.tls_insecure_set.assert_not_called()
+
+    def test_transient_disconnect_waits_for_reconnect_but_other_errors_fail(self) -> None:
+        self.assertTrue(telemetry_publish_completed(mqtt.MQTT_ERR_SUCCESS))
+        self.assertFalse(telemetry_publish_completed(mqtt.MQTT_ERR_NO_CONN))
+        with self.assertRaises(RuntimeError):
+            telemetry_publish_completed(mqtt.MQTT_ERR_INVAL)
 
 
 if __name__ == "__main__":

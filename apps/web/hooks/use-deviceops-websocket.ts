@@ -238,7 +238,6 @@ export function useDeviceOpsWebSocket({
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempt = 0;
-    let hasAuthenticated = false;
     let stopped = false;
 
     function connect() {
@@ -266,12 +265,10 @@ export function useDeviceOpsWebSocket({
             return;
           }
 
-          const recoveredConnection = hasAuthenticated || reconnectAttempt > 0;
           authenticated = true;
-          hasAuthenticated = true;
           reconnectAttempt = 0;
           setConnectionState("live");
-          if (recoveredConnection) onReconnectRef.current();
+          onReconnectRef.current();
           return;
         }
 

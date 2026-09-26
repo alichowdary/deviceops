@@ -376,7 +376,6 @@ bool DeviceOpsClient::initializeIdentity() {
         Serial.println("DeviceOps broker-password derivation failed.");
         return false;
     }
-    deviceSecret_ = "";
     return true;
 }
 
@@ -452,6 +451,7 @@ bool DeviceOpsClient::begin() {
         Serial.println("DeviceOps Last Will creation failed.");
         return false;
     }
+    deviceSecret_ = "";
 
     if (transport_.mode == DeviceOpsTransport::Mode::Hosted) {
         Serial.println("MQTT mode: hosted DeviceOps with verified TLS");
