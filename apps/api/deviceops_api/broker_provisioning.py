@@ -32,6 +32,10 @@ class BrokerProvisioningPartialFailure(BrokerProvisioningError):
     """A primary provisioning operation and its compensation both failed."""
 
 
+class BrokerClientNotFoundError(BrokerProvisioningError):
+    """The requested broker client was already absent."""
+
+
 class DynamicSecurityTransport(Protocol):
     def execute(self, command: dict[str, object]) -> None: ...
 
@@ -286,6 +290,13 @@ class PahoDynamicSecurityTransport:
                 raise BrokerProvisioningError(
                     "Unexpected Dynamic Security response"
                 )
+            if (
+                command_name == "deleteClient"
+                and response.get("error") == "Client not found"
+            ):
+                raise BrokerClientNotFoundError(
+                    "Broker client is already absent"
+                )
             if "error" in response:
                 raise BrokerProvisioningError(
                     f"Dynamic Security command {command_name} was rejected"
@@ -316,10 +327,15 @@ class BrokerDeviceProvisioner:
             }
         )
 
-    def revoke_device(self, device_id: str) -> None:
-        self._transport.execute(
-            {"command": "deleteClient", "username": device_id}
-        )
+    def revoke_device(self, device_id: str) -> bool:
+        """Return whether a broker identity existed and was removed."""
+        try:
+            self._transport.execute(
+                {"command": "deleteClient", "username": device_id}
+            )
+        except BrokerClientNotFoundError:
+            return False
+        return True
 
 
 def build_broker_device_provisioner(

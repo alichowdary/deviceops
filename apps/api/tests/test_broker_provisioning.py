@@ -15,6 +15,7 @@ from deviceops_api.broker_provisioning import (
     DYNAMIC_SECURITY_REQUEST_TOPIC,
     DYNAMIC_SECURITY_RESPONSE_TOPIC,
     BrokerDeviceProvisioner,
+    BrokerClientNotFoundError,
     BrokerProvisioningError,
     PahoDynamicSecurityTransport,
 )
@@ -29,6 +30,12 @@ class RecordingTransport:
         self.commands.append(command)
         if command["command"] in self.failures:
             raise BrokerProvisioningError("safe test failure")
+
+
+class MissingClientTransport(RecordingTransport):
+    def execute(self, command: dict[str, object]) -> None:
+        self.commands.append(command)
+        raise BrokerClientNotFoundError("safe already-absent result")
 
 
 class FakeMessageInfo:
@@ -168,11 +175,24 @@ class BrokerDeviceProvisionerTests(unittest.TestCase):
         transport = RecordingTransport()
         provisioner = BrokerDeviceProvisioner(transport)
 
-        provisioner.revoke_device("dev-test")
+        revoked = provisioner.revoke_device("dev-test")
 
+        self.assertTrue(revoked)
         self.assertEqual(
             transport.commands,
             [{"command": "deleteClient", "username": "dev-test"}],
+        )
+
+    def test_revoke_treats_missing_client_as_already_revoked(self) -> None:
+        transport = MissingClientTransport()
+        provisioner = BrokerDeviceProvisioner(transport)
+
+        revoked = provisioner.revoke_device("dev-legacy")
+
+        self.assertFalse(revoked)
+        self.assertEqual(
+            transport.commands,
+            [{"command": "deleteClient", "username": "dev-legacy"}],
         )
 
 
@@ -255,6 +275,53 @@ class PahoDynamicSecurityTransportTests(unittest.TestCase):
         self.assertNotIn("derived-test-password", message)
         self.assertNotIn("admin-test-password", message)
         self.assertNotIn("server detail", message)
+
+    def test_delete_client_not_found_maps_to_specific_failure(self) -> None:
+        def missing_client_response(request: dict[str, object]) -> bytes:
+            command = request["commands"][0]  # type: ignore[index]
+            return json.dumps(
+                {
+                    "responses": [
+                        {
+                            "command": command["command"],
+                            "correlationData": command["correlationData"],
+                            "error": "Client not found",
+                        }
+                    ]
+                }
+            ).encode()
+
+        transport, _clients = self._transport(missing_client_response)
+
+        with self.assertRaises(BrokerClientNotFoundError):
+            transport.execute(
+                {"command": "deleteClient", "username": "dev-legacy"}
+            )
+
+    def test_other_delete_client_error_remains_a_safe_failure(self) -> None:
+        def rejected_delete_response(request: dict[str, object]) -> bytes:
+            command = request["commands"][0]  # type: ignore[index]
+            return json.dumps(
+                {
+                    "responses": [
+                        {
+                            "command": command["command"],
+                            "correlationData": command["correlationData"],
+                            "error": "Not authorized",
+                        }
+                    ]
+                }
+            ).encode()
+
+        transport, _clients = self._transport(rejected_delete_response)
+
+        with self.assertRaises(BrokerProvisioningError) as raised:
+            transport.execute(
+                {"command": "deleteClient", "username": "dev-test"}
+            )
+
+        self.assertNotIsInstance(raised.exception, BrokerClientNotFoundError)
+        self.assertNotIn("Not authorized", str(raised.exception))
 
     def test_malformed_response_fails(self) -> None:
         transport, _clients = self._transport(lambda _request: b"not-json")

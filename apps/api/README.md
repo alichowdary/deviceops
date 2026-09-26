@@ -194,7 +194,11 @@ messages. Those messages are harmless: ingestion rejects them after the device
 row is gone, and generated UUID device IDs are never reused. With broker
 provisioning disabled, deletion remains independent of broker availability. When
 provisioning is enabled, the Dynamic Security identity must be revoked before
-the database deletion commits; failure leaves the database device intact.
+the database deletion commits. A missing broker client is treated as already
+revoked so legacy registrations can still be deleted. Authentication,
+authorization, transport, timeout, malformed-response, and other broker failures
+still leave the database device intact. If the database commit fails after an
+existing broker identity was removed, FastAPI attempts to restore that identity.
 
 ## Device capabilities
 

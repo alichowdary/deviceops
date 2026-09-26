@@ -32,9 +32,11 @@ class RecordingProvisioner:
         *,
         provision_error: BrokerProvisioningError | None = None,
         revoke_error: BrokerProvisioningError | None = None,
+        revoke_result: bool = True,
     ) -> None:
         self.provision_error = provision_error
         self.revoke_error = revoke_error
+        self.revoke_result = revoke_result
         self.provision_calls: list[tuple[str, str]] = []
         self.revoke_calls: list[str] = []
         self.on_revoke = None
@@ -44,12 +46,13 @@ class RecordingProvisioner:
         if self.provision_error is not None:
             raise self.provision_error
 
-    def revoke_device(self, device_id: str) -> None:
+    def revoke_device(self, device_id: str) -> bool:
         self.revoke_calls.append(device_id)
         if self.on_revoke is not None:
             self.on_revoke(device_id)
         if self.revoke_error is not None:
             raise self.revoke_error
+        return self.revoke_result
 
 
 class BrokerProvisioningRouteTests(unittest.TestCase):
@@ -333,6 +336,22 @@ class BrokerProvisioningRouteTests(unittest.TestCase):
         self.assertEqual(existed_during_revoke, [True])
         self.assertIsNone(self.session.get(Device, device.device_id))
 
+    def test_legacy_deletion_continues_when_broker_identity_is_absent(self) -> None:
+        device = self._add_device()
+        provisioner = RecordingProvisioner(revoke_result=False)
+
+        with patch(
+            "deviceops_api.routes.devices.broker_device_provisioner",
+            provisioner,
+        ):
+            response = delete_device(
+                device.device_id, self.session, self.owner
+            )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(provisioner.revoke_calls, [device.device_id])
+        self.assertIsNone(self.session.get(Device, device.device_id))
+
     def test_revoke_failure_keeps_database_device(self) -> None:
         device = self._add_device()
         provisioner = RecordingProvisioner(
@@ -380,6 +399,31 @@ class BrokerProvisioningRouteTests(unittest.TestCase):
                 )
             ],
         )
+        self.assertIsNotNone(self.session.get(Device, device.device_id))
+
+    def test_legacy_deletion_db_failure_does_not_create_broker_identity(
+        self,
+    ) -> None:
+        device = self._add_device()
+        provisioner = RecordingProvisioner(revoke_result=False)
+
+        with (
+            patch(
+                "deviceops_api.routes.devices.broker_device_provisioner",
+                provisioner,
+            ),
+            patch.object(
+                self.session,
+                "commit",
+                side_effect=SQLAlchemyError("test database failure"),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                delete_device(device.device_id, self.session, self.owner)
+
+        self.assertEqual(raised.exception.status_code, 500)
+        self.assertEqual(provisioner.revoke_calls, [device.device_id])
+        self.assertEqual(provisioner.provision_calls, [])
         self.assertIsNotNone(self.session.get(Device, device.device_id))
 
     def test_deletion_db_and_restoration_failure_is_safe(self) -> None:

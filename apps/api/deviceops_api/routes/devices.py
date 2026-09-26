@@ -191,6 +191,7 @@ def delete_device(
 ) -> Response:
     device = get_owned_device_or_404(session, device_id, current_user.id)
     broker_password: str | None = None
+    broker_identity_was_revoked = False
     if broker_device_provisioner is not None:
         try:
             broker_password = derive_broker_password_from_stored_hash(
@@ -206,7 +207,9 @@ def delete_device(
                 detail="Device deletion failed",
             ) from exc
         try:
-            broker_device_provisioner.revoke_device(device_id)
+            broker_identity_was_revoked = (
+                broker_device_provisioner.revoke_device(device_id)
+            )
         except BrokerProvisioningError as exc:
             session.rollback()
             logger.error(
@@ -223,7 +226,10 @@ def delete_device(
         session.commit()
     except SQLAlchemyError as exc:
         session.rollback()
-        if broker_device_provisioner is not None:
+        if (
+            broker_device_provisioner is not None
+            and broker_identity_was_revoked
+        ):
             try:
                 assert broker_password is not None
                 broker_device_provisioner.provision_device(
